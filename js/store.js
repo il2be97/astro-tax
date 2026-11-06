@@ -1,5 +1,5 @@
 // Storage adapters with one interface:
-//   watch(cb) → unsubscribe   cb({profile, accounts, incomes, expenses, payments, events})
+//   watch(cb) → unsubscribe   cb({profile, accounts, clients, incomes, expenses, payments, events})
 //   setProfile(patch) · add(col, data) · update(col, id, patch) · remove(col, id) · put(col, id, data)
 //
 // CloudStore — Firestore under users/{uid}/…, with a persistent local cache:
@@ -8,7 +8,7 @@
 
 import { FIREBASE_CONFIG } from './config.js';
 
-export const COLLECTIONS = ['accounts', 'incomes', 'expenses', 'payments', 'events'];
+export const COLLECTIONS = ['accounts', 'clients', 'incomes', 'expenses', 'payments', 'events'];
 const SDK = 'https://www.gstatic.com/firebasejs/11.10.0';
 
 export const cloudConfigured = () => Boolean(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);
@@ -24,7 +24,7 @@ export class LocalStore {
   constructor() {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LS_KEY)); } catch { /* empty */ }
-    this.#state = saved ?? { profile: {}, ...Object.fromEntries(COLLECTIONS.map((c) => [c, []])) };
+    this.#state = { profile: {}, ...Object.fromEntries(COLLECTIONS.map((c) => [c, []])), ...saved };
   }
 
   #emit() {

@@ -211,7 +211,7 @@ function actions(p) {
 function feed(p) {
   const y = String(p.year);
   const items = [
-    ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: x.source || 'Доход', sub: accName(x.accountId), amount: `+${money(x.amount)}`, cls: 'ok' })),
+    ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: clientName(x) || 'Доход', sub: accName(x.accountId), amount: `+${money(x.amount)}`, cls: 'ok' })),
     ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход', sub: x.note || accName(x.accountId), amount: `−${money(x.amount)}`, cls: '' })),
     ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: money(x.amount), cls: 'dim' })),
   ].sort((a, b) => (b.x.date ?? '').localeCompare(a.x.date ?? ''));
@@ -262,6 +262,7 @@ const accName = (id) => {
   const a = (data?.accounts ?? []).find((x) => x.id === id);
   return a ? `${a.name}${a.last4 ? ` ••${a.last4}` : ''}` : '';
 };
+const clientName = (x) => (data?.clients ?? []).find((c) => c.id === x.clientId)?.name || x.source || '';
 
 // ───────────── sheets ─────────────
 function openSheet(title, body, onSubmit) {
@@ -280,24 +281,39 @@ function openSheet(title, body, onSubmit) {
   setTimeout(() => form.querySelector('.amount-input')?.focus(), 30);
 }
 
-const accountSelect = () => {
-  const accs = data.accounts ?? [];
-  const last = recall('last-account');
-  return `<label class="field">Счёт
-    <select name="accountId">
-      <option value="">Без счёта</option>
-      ${accs.map((a) => `<option value="${esc(a.id)}"${a.id === last ? ' selected' : ''}>${esc(a.name)}${a.last4 ? ` ••${esc(a.last4)}` : ''}</option>`).join('')}
-      <option value="__new">+ Новый счёт…</option>
+// A select over a small named list (accounts, clients) with an inline "+ new…" entry.
+function pickSelect({ name, label, list, selected, empty, newLabel, placeholder, newValue = '' }) {
+  const asNew = Boolean(newValue && !selected);
+  return `<label class="field">${label}
+    <select name="${name}" data-new="${name}New">
+      <option value="">${empty}</option>
+      ${list.map((a) => `<option value="${esc(a.id)}"${a.id === selected ? ' selected' : ''}>${esc(a.name)}${a.last4 ? ` ••${esc(a.last4)}` : ''}</option>`).join('')}
+      <option value="__new"${asNew ? ' selected' : ''}>${newLabel}</option>
     </select></label>
-    <input name="newAccount" placeholder="Название счёта (Chase, Stripe…)" hidden>`;
-};
+    <input name="${name}New" placeholder="${placeholder}" value="${esc(newValue)}"${asNew ? '' : ' hidden'}>`;
+}
 
-async function resolveAccount(r) {
-  if (r.accountId !== '__new') { remember('last-account', r.accountId); return r.accountId; }
-  const name = (r.newAccount || '').trim();
+const accountSelect = (selected = recall('last-account')) => pickSelect({
+  name: 'accountId', label: 'Счёт', list: data.accounts ?? [], selected,
+  empty: 'Без счёта', newLabel: '+ Новый счёт…', placeholder: 'Название счёта (Chase, Stripe…)',
+});
+const clientSelect = (selected = '', newValue = '') => pickSelect({
+  name: 'clientId', label: 'Заказчик', list: data.clients ?? [], selected,
+  empty: 'Не указан', newLabel: '+ Новый заказчик…', placeholder: 'Имя заказчика', newValue,
+});
+
+async function resolvePick(col, value, newName, extra = {}) {
+  if (value !== '__new') return value || '';
+  const name = (newName || '').trim();
   if (!name) return '';
+  const same = (data[col] ?? []).find((a) => a.name.trim().toLowerCase() === name.toLowerCase());
+  if (same) return same.id;
   const id = crypto.randomUUID();
-  await store.put('accounts', id, { name, type: 'bank', last4: '' });
+  await store.put(col, id, { name, ...extra });
+  return id;
+}
+async function resolveAccount(r) {
+  const id = await resolvePick('accounts', r.accountId, r.accountIdNew, { type: 'bank', last4: '' });
   remember('last-account', id);
   return id;
 }
@@ -305,43 +321,56 @@ async function resolveAccount(r) {
 const amountField = (value = '') =>
   `<input class="amount-input" name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" placeholder="$0" value="${value}" required>`;
 
-function incomeSheet() {
+// Bottom of every sheet: "Add" for a new record; "Save" + "Delete" when editing one.
+const sheetButtons = (col, x) => x
+  ? `<button class="btn primary block" type="submit">Сохранить</button>
+     <button class="btn danger block" type="button" data-act="del-item" data-col="${col}" data-id="${esc(x.id)}">Удалить</button>`
+  : '<button class="btn primary block" type="submit">Добавить</button>';
+
+// New record → add; existing → replace it, keeping fields this form doesn't know about.
+async function save(col, x, rec) {
+  if (!x) return store.add(col, rec);
+  const { id, ...rest } = x;
+  return store.put(col, id, { ...rest, ...rec });
+}
+
+function incomeSheet(x) {
   const mode = profile().workMode;
+  const type = x?.type || (mode === 'w2' ? 'w2' : 'se');
   openSheet('Доход', `
-    ${amountField()}
-    <div class="row2">
-      <label class="field">Дата<input name="date" type="date" value="${todayIso()}" required></label>
-      <label class="field">От кого<input name="source" placeholder="необязательно"></label>
+    ${amountField(x?.amount ?? '')}
+    <label class="field">Дата<input name="date" type="date" value="${x?.date ?? todayIso()}" required></label>
+    ${clientSelect(x?.clientId ?? '', x?.clientId ? '' : (x?.source ?? ''))}
+    ${accountSelect(x ? x.accountId : undefined)}
+    ${mode === 'mixed' || (x && type !== (mode === 'w2' ? 'w2' : 'se')) ? `<div class="seg"><label><input type="radio" name="type" value="se"${type === 'se' ? ' checked' : ''}>1099</label><label><input type="radio" name="type" value="w2"${type === 'w2' ? ' checked' : ''}>Зарплата W-2</label></div>` : `<input type="hidden" name="type" value="${type}">`}
+    <div class="row2 w2"${type === 'w2' ? '' : ' hidden'}>
+      <label class="field">Удержано IRS<input name="fedWithheld" type="number" inputmode="decimal" step="0.01" min="0" placeholder="$0" value="${x?.fedWithheld || ''}"></label>
+      <label class="field">Удержано штатом<input name="stateWithheld" type="number" inputmode="decimal" step="0.01" min="0" placeholder="$0" value="${x?.stateWithheld || ''}"></label>
     </div>
-    ${accountSelect()}
-    ${mode === 'mixed' ? '<div class="seg"><label><input type="radio" name="type" value="se" checked>1099</label><label><input type="radio" name="type" value="w2">Зарплата W-2</label></div>' : `<input type="hidden" name="type" value="${mode === 'w2' ? 'w2' : 'se'}">`}
-    <div class="row2 w2"${mode === 'w2' ? '' : ' hidden'}>
-      <label class="field">Удержано IRS<input name="fedWithheld" type="number" inputmode="decimal" step="0.01" min="0" placeholder="$0"></label>
-      <label class="field">Удержано штатом<input name="stateWithheld" type="number" inputmode="decimal" step="0.01" min="0" placeholder="$0"></label>
-    </div>
-    <button class="btn primary block" type="submit">Добавить</button>`, async (r) => {
+    ${sheetButtons('incomes', x)}`, async (r) => {
     const accountId = await resolveAccount(r);
-    await store.add('incomes', {
-      date: r.date, amount: amt(r.amount), accountId, source: (r.source || '').trim(), type: r.type || 'se',
-      ...(r.type === 'w2' ? { fedWithheld: amt(r.fedWithheld), stateWithheld: amt(r.stateWithheld) } : {}),
+    const clientId = await resolvePick('clients', r.clientId, r.clientIdNew);
+    await save('incomes', x, {
+      date: r.date, amount: amt(r.amount), accountId, clientId, source: '', type: r.type || 'se',
+      fedWithheld: r.type === 'w2' ? amt(r.fedWithheld) : 0, stateWithheld: r.type === 'w2' ? amt(r.stateWithheld) : 0,
     });
   });
 }
 
-function expenseSheet() {
-  const last = recall('last-cat') || 'software';
+function expenseSheet(x) {
+  const cat = x?.category || recall('last-cat') || 'software';
   openSheet('Расход', `
-    ${amountField()}
-    <label class="field">На что<select name="category">${opts(CATS, last)}</select></label>
+    ${amountField(x?.amount ?? '')}
+    <label class="field">На что<select name="category">${opts(CATS, cat)}</select></label>
     <div class="row2">
-      <label class="field">Дата<input name="date" type="date" value="${todayIso()}" required></label>
-      <label class="field">Заметка<input name="note" placeholder="необязательно"></label>
+      <label class="field">Дата<input name="date" type="date" value="${x?.date ?? todayIso()}" required></label>
+      <label class="field">Заметка<input name="note" placeholder="необязательно" value="${esc(x?.note ?? '')}"></label>
     </div>
-    ${accountSelect()}
-    <button class="btn primary block" type="submit">Добавить</button>`, async (r) => {
+    ${accountSelect(x ? x.accountId : undefined)}
+    ${sheetButtons('expenses', x)}`, async (r) => {
     const accountId = await resolveAccount(r);
-    remember('last-cat', r.category);
-    await store.add('expenses', { date: r.date, amount: amt(r.amount), category: r.category, accountId, note: (r.note || '').trim() });
+    if (!x) remember('last-cat', r.category);
+    await save('expenses', x, { date: r.date, amount: amt(r.amount), category: r.category, accountId, note: (r.note || '').trim() });
   });
 }
 
@@ -351,21 +380,26 @@ function taxYearOfPayment(date, quarter) {
   return (quarter === 4 || quarter === 0) && Number(date.slice(5, 7)) <= 4 ? y - 1 : y;
 }
 
-function paySheet() {
+function paySheet(x) {
   const plan = currentPlan();
   const n = plan.next;
   const fed = n ? n.toPay.fed : 0;
   const st = n ? n.toPay.state : 0;
-  const kind = fed >= 1 || !plan.hasState ? 'federal' : 'state';
-  openSheet('Оплатил налог', `
-    ${plan.hasState ? `<div class="seg"><label><input type="radio" name="kind" value="federal"${kind === 'federal' ? ' checked' : ''}>IRS</label><label><input type="radio" name="kind" value="state"${kind === 'state' ? ' checked' : ''}>Штат ${esc(plan.state?.code ?? '')}</label></div>` : '<input type="hidden" name="kind" value="federal">'}
-    ${amountField((kind === 'federal' ? fed : st).toFixed(2))}
-    <label class="field">Дата<input name="date" type="date" value="${todayIso()}" required></label>
-    <input type="hidden" name="quarter" value="${n ? n.q : 0}">
-    <button class="btn primary block" type="submit">Сохранить</button>`, async (r) => {
-    const q = Number(r.quarter);
-    await store.add('payments', { date: r.date, amount: amt(r.amount), kind: r.kind, quarter: q, note: '', year: taxYearOfPayment(r.date, q) });
+  const kind = x?.kind || (fed >= 1 || !plan.hasState ? 'federal' : 'state');
+  const q = x ? Number(x.quarter) || 0 : (n ? n.q : 0);
+  const qOpts = [[1, 'Q1'], [2, 'Q2'], [3, 'Q3'], [4, 'Q4'], [0, 'Декларация']];
+  openSheet(x ? 'Платёж' : 'Оплатил налог', `
+    ${plan.hasState || kind === 'state' ? `<div class="seg"><label><input type="radio" name="kind" value="federal"${kind === 'federal' ? ' checked' : ''}>IRS</label><label><input type="radio" name="kind" value="state"${kind === 'state' ? ' checked' : ''}>Штат ${esc(plan.state?.code ?? '')}</label></div>` : '<input type="hidden" name="kind" value="federal">'}
+    ${amountField(x ? x.amount : (kind === 'federal' ? fed : st).toFixed(2))}
+    <div class="row2">
+      <label class="field">Дата<input name="date" type="date" value="${x?.date ?? todayIso()}" required></label>
+      <label class="field">За что<select name="quarter">${qOpts.map(([v, l]) => `<option value="${v}"${v === q ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+    </div>
+    ${x ? sheetButtons('payments', x) : '<button class="btn primary block" type="submit">Сохранить</button>'}`, async (r) => {
+    const qq = Number(r.quarter);
+    await save('payments', x, { date: r.date, amount: amt(r.amount), kind: r.kind, quarter: qq, note: x?.note ?? '', year: taxYearOfPayment(r.date, qq) });
   });
+  if (x) return;
   const form = $('#sheet-form');
   form.querySelectorAll('[name=kind]').forEach((el) => el.addEventListener('change', () => {
     form.amount.value = (el.value === 'federal' ? fed : st).toFixed(2);
@@ -375,14 +409,17 @@ function paySheet() {
 function itemSheet(col, id) {
   const x = (data[col] ?? []).find((i) => i.id === id);
   if (!x) return;
-  const title = col === 'incomes' ? 'Доход' : col === 'expenses' ? 'Расход' : 'Платёж';
-  const what = col === 'incomes' ? (x.source || '') : col === 'expenses' ? (EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? '') : (x.kind === 'state' ? 'Штат' : 'IRS');
-  const acc = accName(x.accountId);
-  openSheet(title, `
-    <div class="big" style="text-align:center;font-size:36px">${money(x.amount)}</div>
-    <div class="when" style="text-align:center">${longDate(x.date)}${what ? ` · ${esc(what)}` : ''}${acc ? ` · ${esc(acc)}` : ''}</div>
-    <button class="btn danger block" type="submit">Удалить</button>`, async () => { await store.remove(col, id); });
+  if (col === 'incomes') incomeSheet(x);
+  else if (col === 'expenses') expenseSheet(x);
+  else if (col === 'payments') paySheet(x);
 }
+
+// Settings: a named list (accounts / clients) with add + remove in place.
+const listRow = (col, a) => `<div class="acc"><span>${esc(a.name)}${a.last4 ? ` <span class="dim">••${esc(a.last4)}</span>` : ''}</span><button type="button" data-act="del-named" data-col="${col}" data-id="${esc(a.id)}" aria-label="Удалить">×</button></div>`;
+const namedList = (col, title, list, placeholder) => `
+    <div class="sub">${title}</div>
+    <div class="acc-list" id="list-${col}">${list.map((a) => listRow(col, a)).join('')}</div>
+    <div class="add-row"><input id="new-${col}" placeholder="${placeholder}"><button type="button" class="btn" data-act="add-named" data-col="${col}">Добавить</button></div>`;
 
 function settingsSheet() {
   const p = profile();
@@ -395,8 +432,8 @@ function settingsSheet() {
     <label class="field">Как работаешь<select name="workMode">${opts(WORK_MODES, p.workMode)}</select></label>
     <label class="field">Статус подачи<select name="filingStatus">${opts(FILING_STATUSES, p.filingStatus)}</select></label>
 
-    <div class="sub">Счета</div>
-    <div class="acc-list">${accs.length ? accs.map((a) => `<div class="acc"><span>${esc(a.name)}${a.last4 ? ` <span class="dim">••${esc(a.last4)}</span>` : ''}</span><button type="button" data-act="del-acc" data-id="${esc(a.id)}" aria-label="Удалить">×</button></div>`).join('') : '<div class="fine" style="text-align:left">Счета добавляются прямо при вводе дохода.</div>'}</div>
+${namedList('accounts', 'Счета', accs, 'Chase, Stripe…')}
+${namedList('clients', 'Заказчики', data.clients ?? [], 'Имя заказчика')}
 
     <details class="more" style="background:none;border:0">
       <summary style="padding:10px 0">Точнее расчёт</summary>
@@ -424,9 +461,10 @@ function settingsSheet() {
 // ───────────── events ─────────────
 document.addEventListener('change', (ev) => {
   const el = ev.target;
-  if (el.name === 'accountId' && el.form?.newAccount) {
-    el.form.newAccount.hidden = el.value !== '__new';
-    if (!el.form.newAccount.hidden) el.form.newAccount.focus();
+  const extra = el.dataset?.new && el.form?.elements[el.dataset.new];
+  if (extra) {
+    extra.hidden = el.value !== '__new';
+    if (!extra.hidden) extra.focus();
   }
   if (el.name === 'type' && el.form?.querySelector('.w2')) el.form.querySelector('.w2').hidden = el.value !== 'w2';
 });
@@ -447,12 +485,34 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'open-item') itemSheet(b.dataset.col, b.dataset.id);
   else if (act === 'toggle-all') { showAll = !showAll; render(); }
   else if (act === 'ack') await store.update('events', b.dataset.id, { status: 'read', updatedAt: new Date().toISOString() });
-  else if (act === 'del-acc') { await store.remove('accounts', b.dataset.id); b.closest('.acc').remove(); }
+  else if (act === 'del-item') {
+    if (!confirm('Удалить запись?')) return;
+    sheet.close();
+    await store.remove(b.dataset.col, b.dataset.id);
+  } else if (act === 'del-named') { await store.remove(b.dataset.col, b.dataset.id); b.closest('.acc').remove(); }
+  else if (act === 'add-named') {
+    const col = b.dataset.col;
+    const input = $(`#new-${col}`);
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    const id = crypto.randomUUID();
+    await store.put(col, id, col === 'accounts' ? { name, type: 'bank', last4: '' } : { name });
+    $(`#list-${col}`).insertAdjacentHTML('beforeend', listRow(col, { id, name }));
+    input.value = '';
+    input.focus();
+  }
   else if (act === 'welcome-done') {
     const state = $('#w-state').value;
     if (!state) { $('#w-state').focus(); return; }
     await store.setProfile({ state, workMode: $('#w-mode').value, year: Number(todayIso().slice(0, 4)) });
   }
+});
+
+// Enter in an "add account / client" field adds it instead of submitting settings.
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' || !ev.target.id?.startsWith('new-')) return;
+  ev.preventDefault();
+  ev.target.nextElementSibling?.click();
 });
 
 sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheet.close(); });

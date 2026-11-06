@@ -195,3 +195,8 @@ details.more[open] summary::after { transform: rotate(-90deg); }
 .gate { min-height: 70vh; display: grid; place-items: center; }
 .gate .hero { width: 100%; }
 .gate .err { color: var(--bad); font-size: 13px; margin-top: 12px; }
+
+.add-row { display: flex; gap: 8px; }
+.add-row input { flex: 1; min-width: 0; }
+.add-row .btn { flex: none; padding-inline: 16px; }
+.acc-list:empty { display: none; }
