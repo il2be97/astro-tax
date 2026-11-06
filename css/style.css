@@ -228,3 +228,15 @@ details.more[open] summary::after { transform: rotate(-90deg); }
 .receipt-view .pdf { display: grid; place-items: center; background: var(--card); font-size: 11px; color: var(--text-2); }
 .receipt-view .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text-2); }
 .col { cursor: pointer; }
+
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr);
+  background: rgba(8, 10, 15, .92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line); padding: 6px max(8px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)); }
+.tabbar button { background: none; border: 0; color: var(--text-3); font: inherit; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0; cursor: pointer; }
+.tabbar button i { font-style: normal; font-family: var(--mono); font-size: 16px; line-height: 1; }
+.tabbar button.on { color: var(--accent); }
+main#root { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+.bar-row.tap { cursor: pointer; }
+.bar-row.tap:hover .bar-head span { color: var(--text); }
+.picker { margin-bottom: 2px; }
+.hero.client .split { margin-top: 18px; }

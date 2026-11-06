@@ -36,6 +36,8 @@ let user = null;
 let unwatch = null;
 let syncing = false;
 let showAll = false;
+let tab = recall('tab') || 'home';
+let clientSel = '';
 const root = $('#root');
 const sheet = $('#sheet');
 
@@ -174,8 +176,19 @@ function render() {
   const p = profile();
   if (!p.state) { welcome(); return; }
   const plan = currentPlan();
-  root.innerHTML = hero(plan) + notes() + actions(p) + feed(p) + charts(p, plan) + more(plan);
+  const views = {
+    home: () => hero(plan) + notes() + actions(p) + feed(p),
+    income: () => incomeView(p, plan),
+    expense: () => expenseView(p),
+    tax: () => taxView(p, plan),
+  };
+  root.innerHTML = (views[tab] ?? views.home)() + tabbar();
+  root.querySelector('details.more.open-default')?.setAttribute('open', '');
 }
+
+const TABS = [['home', 'Главная', '◎'], ['income', 'Доходы', '↓'], ['expense', 'Расходы', '↑'], ['tax', 'Налоги', '%']];
+const tabbar = () => `<nav class="tabbar">${TABS.map(([id, label, icon]) => `
+  <button class="${id === tab ? 'on' : ''}" data-act="tab" data-tab="${id}"><i>${icon}</i>${label}</button>`).join('')}</nav>`;
 
 function welcome() {
   root.innerHTML = `
@@ -252,39 +265,40 @@ function actions(p) {
   </div>`;
 }
 
-function feed(p) {
+function feed(p, { cols = ['incomes', 'expenses', 'payments'], pred = () => true, title = `Записи ${p.year}`, totals: withTotals = true } = {}) {
   const y = String(p.year);
+  const want = (col) => (x) => cols.includes(col) && pred(x, col);
   const items = [
-    ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: clientName(x) || (x.type === 'w2' ? 'Зарплата' : 'Доход'), sub: [x.type === 'w2' ? 'W-2' : '', accName(x.accountId)].filter(Boolean).join(' · '), amount: `+${money(x.amount)}`, cls: 'ok' })),
-    ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: `${EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход'}${x.recurringId ? ' ↻' : ''}${x.hasReceipt ? ' 📎' : ''}`, sub: x.note || accName(x.accountId), amount: `−${money(x.amount)}`, cls: '' })),
-    ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: money(x.amount), cls: 'dim' })),
+    ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).filter(want('incomes')).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: clientName(x) || (x.type === 'w2' ? 'Зарплата' : 'Доход'), sub: [x.type === 'w2' ? 'W-2' : '', accName(x.accountId)].filter(Boolean).join(' · '), amount: `+${money(x.amount)}`, cls: 'ok' })),
+    ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).filter(want('expenses')).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: `${EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход'}${x.recurringId ? ' ↻' : ''}${x.hasReceipt ? ' 📎' : ''}`, sub: x.note || accName(x.accountId), amount: `−${money(x.amount)}`, cls: '' })),
+    ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).filter(want('payments')).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: money(x.amount), cls: 'dim' })),
   ].sort((a, b) => (b.x.date ?? '').localeCompare(a.x.date ?? ''));
   const list = showAll ? items : items.slice(0, 6);
   const sum = (col) => (data[col] ?? []).filter((x) => x.date?.startsWith(y)).reduce((t, x) => t + (Number(x.amount) || 0), 0);
   const inc = sum('incomes');
   const exp = sum('expenses');
-  const totals = inc || exp ? `<div class="split totals">
+  const totals = withTotals && (inc || exp) ? `<div class="split totals">
       <span>Доход<b class="ok">${money(inc)}</b></span>
       <span>Расход<b>${money(exp)}</b></span>
       <span>Прибыль<b>${money(inc - exp)}</b></span>
     </div>` : '';
   return `<section>
-    <div class="section-title"><span>Записи ${p.year}</span>${items.length > 6 ? `<button class="btn link" style="padding:0;font-size:11px" data-act="toggle-all">${showAll ? 'Свернуть' : `Все ${items.length}`}</button>` : ''}</div>
+    <div class="section-title"><span>${title}</span>${items.length > 6 ? `<button class="btn link" style="padding:0;font-size:11px" data-act="toggle-all">${showAll ? 'Свернуть' : `Все ${items.length}`}</button>` : ''}</div>
     ${totals}
     <div class="feed">${list.length ? list.map((i) => `
       <button class="item" data-act="open-item" data-col="${i.col}" data-id="${esc(i.x.id)}">
         <span class="glyph ${i.g}">${i.icon}</span>
         <span class="t"><div>${esc(i.title)}</div><small>${shortDate(i.x.date)}${i.sub ? ` · ${esc(i.sub)}` : ''}</small></span>
         <span class="a ${i.cls}">${i.amount}</span>
-      </button>`).join('') : '<div class="empty">Пока пусто. Добавь первый доход.</div>'}</div>
+      </button>`).join('') : '<div class="empty">Пока пусто.</div>'}</div>
   </section>`;
 }
 
 // ───────────── charts ─────────────
 // Horizontal bars, one hue: magnitude only, so no legend; label + value are text.
-function bars(rows, max = Math.max(...rows.map((r) => r.v), 1)) {
+function bars(rows, max = Math.max(...rows.map((r) => r.v), 1), act = '') {
   return `<div class="bars">${rows.map((r) => `
-    <div class="bar-row" title="${esc(r.label)}: ${money(r.v)}${r.note ? ` · ${esc(r.note)}` : ''}">
+    <div class="bar-row${act ? ' tap' : ''}"${act ? ` data-act="${act}" data-key="${esc(r.key)}"` : ''} title="${esc(r.label)}: ${money(r.v)}${r.note ? ` · ${esc(r.note)}` : ''}">
       <div class="bar-head"><span>${esc(r.label)}</span><b>${money(r.v)}</b></div>
       <div class="bar-track"><i style="width:${Math.max(r.v > 0 ? 1.5 : 0, (r.v / max) * 100).toFixed(1)}%"></i></div>
       ${r.note ? `<small>${esc(r.note)}</small>` : ''}
@@ -292,10 +306,10 @@ function bars(rows, max = Math.max(...rows.map((r) => r.v), 1)) {
 }
 
 // 12 monthly columns of income for the year.
-function months(p) {
+function months(p, pred = () => true) {
   const y = String(p.year);
   const m = Array(12).fill(0);
-  for (const x of data.incomes ?? []) if (x.date?.startsWith(y)) m[Number(x.date.slice(5, 7)) - 1] += Number(x.amount) || 0;
+  for (const x of data.incomes ?? []) if (x.date?.startsWith(y) && pred(x)) m[Number(x.date.slice(5, 7)) - 1] += Number(x.amount) || 0;
   const max = Math.max(...m, 1);
   const names = ['Я', 'Ф', 'М', 'А', 'М', 'И', 'И', 'А', 'С', 'О', 'Н', 'Д'];
   const full = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
@@ -303,42 +317,109 @@ function months(p) {
     <div class="col" title="${full[i]}: ${money(v)}" data-act="month" data-label="${full[i]} · ${money(v)}"><div class="col-track"><i style="height:${v > 0 ? Math.max(3, (v / max) * 100).toFixed(1) : 0}%"></i></div><span>${names[i]}</span></div>`).join('')}</div>`;
 }
 
-function charts(p, plan) {
+// Who an income belongs to — a client, legacy free text, W-2 wages, or nobody.
+const clientKey = (x) => x.clientId || (x.type === 'w2' ? '__w2' : x.source ? `src:${x.source}` : '__none');
+const clientLabel = (x) => clientName(x) || (x.type === 'w2' ? 'Зарплата W-2' : 'Без заказчика');
+
+function incomeView(p, plan) {
   const y = String(p.year);
   const inc = (data.incomes ?? []).filter((x) => x.date?.startsWith(y));
+  const groups = new Map();
+  for (const x of inc) {
+    const k = clientKey(x);
+    const g = groups.get(k) ?? { key: k, label: clientLabel(x), v: 0, se: 0, n: 0 };
+    g.v += Number(x.amount) || 0;
+    if (x.type !== 'w2') g.se += Number(x.amount) || 0;
+    g.n += 1;
+    groups.set(k, g);
+  }
+  const all = [...groups.values()].sort((a, b) => b.v - a.v);
+  const total = all.reduce((t, g) => t + g.v, 0);
+  const totalSe = all.reduce((t, g) => t + g.se, 0);
+  if (clientSel && !groups.has(clientSel)) clientSel = '';
+  const sel = groups.get(clientSel);
+  const pick = `<label class="field picker">Заказчик
+    <select data-act-change="client">
+      <option value="">Все заказчики · ${money(total)}</option>
+      ${all.map((g) => `<option value="${esc(g.key)}"${g.key === clientSel ? ' selected' : ''}>${esc(g.label)} · ${money(g.v)}</option>`).join('')}
+    </select></label>`;
+
+  let body;
+  if (!sel) {
+    const rows = all.map((g) => ({ label: g.label, v: g.v, note: total ? `${Math.round((g.v / total) * 100)}% · ${g.n} ${g.n === 1 ? 'платёж' : g.n < 5 ? 'платежа' : 'платежей'}` : '', key: g.key }));
+    body = `${rows.length ? `<div class="chart"><div class="chart-title">Доход по заказчикам<span>${money(total)}</span></div>${bars(rows, undefined, 'client')}<div class="fine" style="text-align:left;margin-top:10px">Нажми на заказчика — подробнее</div></div>` : ''}
+      <div class="chart"><div class="chart-title">Доход по месяцам<span></span></div>${months(p)}</div>`;
+  } else {
+    // Tax attributed to this client: income tax and state by share of all income,
+    // self-employment tax by share of 1099 income. An estimate on the year forecast.
+    const a = plan.annual;
+    const share = total ? sel.v / total : 0;
+    const seShare = totalSe ? sel.se / totalSe : 0;
+    const t = { fed: (a.incomeTax + a.addlMedicare) * share, se: a.seTax * seShare, st: a.stateTotal * share };
+    const tTotal = t.fed + t.se + t.st;
+    body = `<section class="hero client">
+        <div class="kicker">${esc(sel.label)}</div>
+        <div class="big">${money(sel.v)}</div>
+        <div class="when">${Math.round(share * 100)}% дохода за ${p.year} · ${sel.n} ${sel.n === 1 ? 'платёж' : sel.n < 5 ? 'платежа' : 'платежей'}</div>
+        <div class="split">
+          <span>Налог ≈<b>${money(tTotal)}</b></span>
+          <span>На руки ≈<b>${money(sel.v - tTotal)}</b></span>
+          <span>Ставка<b>${sel.v ? `${((tTotal / sel.v) * 100).toFixed(1)}%` : '—'}</b></span>
+        </div>
+      </section>
+      <div class="chart"><div class="chart-title">Налоги с этого дохода<span>${money(tTotal)}</span></div>
+        ${bars([
+          { label: 'Федеральный подоходный', v: t.fed },
+          ...(t.se >= 1 ? [{ label: 'Самозанятость', v: t.se }] : []),
+          ...(plan.hasState ? [{ label: `Штат ${esc(plan.state?.code ?? '')}`, v: t.st }] : []),
+        ])}
+        <div class="fine" style="text-align:left;margin-top:10px">Доля от годового налога пропорционально доходу; расходы делятся на всех.</div></div>
+      <div class="chart"><div class="chart-title">По месяцам<span></span></div>${months(p, (x) => clientKey(x) === sel.key)}</div>`;
+  }
+  return `${pick}${body}${feed(p, { cols: ['incomes'], pred: (x) => !sel || clientKey(x) === sel.key, title: sel ? 'Платежи' : `Доходы ${p.year}`, totals: false })}
+    <div class="actions" style="grid-template-columns:1fr"><button class="btn" data-act="income">＋ Доход</button></div>`;
+}
+
+function expenseView(p) {
+  const y = String(p.year);
   const exps = (data.expenses ?? []).filter((x) => x.date?.startsWith(y));
-  if (!inc.length && !exps.length) return '';
   const byCat = new Map();
   for (const x of exps) { const k = EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Другое'; byCat.set(k, (byCat.get(k) ?? 0) + (Number(x.amount) || 0)); }
   const cats = [...byCat].map(([label, v]) => ({ label, v })).sort((a, b) => b.v - a.v);
-  const rec = data.recurring ?? [];
-  const recRows = rec.map((r) => ({ label: r.note || EXPENSE_CATEGORIES.find((c) => c.id === r.category)?.label || 'Трата', v: Number(r.amount) || 0, note: accName(r.accountId) })).sort((a, b) => b.v - a.v);
+  const catTotal = cats.reduce((t, r) => t + r.v, 0);
+  const recRows = (data.recurring ?? []).map((r) => ({ label: r.note || EXPENSE_CATEGORIES.find((c) => c.id === r.category)?.label || 'Трата', v: Number(r.amount) || 0, note: accName(r.accountId) })).sort((a, b) => b.v - a.v);
   const recTotal = recRows.reduce((t, r) => t + r.v, 0);
-  const by = new Map();
-  for (const x of inc) { const k = clientName(x) || (x.type === 'w2' ? 'Зарплата W-2' : 'Без заказчика'); by.set(k, (by.get(k) ?? 0) + (Number(x.amount) || 0)); }
-  let clients = [...by].map(([label, v]) => ({ label, v })).sort((a, b) => b.v - a.v);
-  if (clients.length > 6) clients = [...clients.slice(0, 5), { label: 'Другие', v: clients.slice(5).reduce((t, r) => t + r.v, 0) }];
-  const total = clients.reduce((t, r) => t + r.v, 0);
-  clients.forEach((r) => { r.note = total ? `${Math.round((r.v / total) * 100)}%` : ''; });
+  return `<div class="split totals">
+      <span>Расходы за ${p.year}<b>${money(catTotal)}</b></span>
+      <span>Постоянные<b>${money(recTotal)}/мес</b></span>
+    </div>
+    ${recRows.length ? `<div class="chart"><div class="chart-title">Постоянные траты<span>${money(recTotal)}/мес</span></div>${bars(recRows)}<div class="fine" style="text-align:left;margin-top:10px">≈ ${money(recTotal * 12)} в год · остановить — в настройках</div></div>` : ''}
+    ${cats.length ? `<div class="chart"><div class="chart-title">По категориям<span>${money(catTotal)}</span></div>${bars(cats)}</div>` : ''}
+    ${feed(p, { cols: ['expenses'], title: `Расходы ${p.year}`, totals: false })}
+    <div class="actions" style="grid-template-columns:1fr"><button class="btn" data-act="expense">＋ Расход</button></div>`;
+}
 
+function taxView(p, plan) {
   const a = plan.annual;
   const st = plan.state?.code ?? '';
   const taxes = [
     { label: 'Федеральный подоходный', v: a.incomeTax + a.addlMedicare },
     { label: 'Самозанятость (соцстрах + Medicare)', v: a.seTax },
-    { label: plan.hasState ? `Штат ${st}` : `Штат ${st}`, v: a.state, note: plan.hasState ? '' : 'в этом штате нет подоходного налога' },
+    { label: `Штат ${st}`, v: a.state, note: plan.hasState ? '' : 'в этом штате нет подоходного налога' },
     ...(a.local ? [{ label: 'Город', v: a.local }] : []),
   ].filter((r) => r.v >= 1 || r.note);
-  const paid = `Оплачено: IRS ${money(plan.paid.fed + plan.withheld.fed)}${plan.hasState ? ` · штат ${money(plan.paid.state + plan.withheld.state)}` : ''}`;
-
-  return `<section class="charts">
-    <div class="section-title"><span>Графики ${p.year}</span></div>
-    ${inc.length ? `<div class="chart"><div class="chart-title">Доход по заказчикам</div>${bars(clients)}</div>
-    <div class="chart"><div class="chart-title">Доход по месяцам<span></span></div>${months(p)}</div>` : ''}
-    ${cats.length ? `<div class="chart"><div class="chart-title">Расходы по категориям<span>${money(cats.reduce((t, r) => t + r.v, 0))}</span></div>${bars(cats)}</div>` : ''}
-    ${recRows.length ? `<div class="chart"><div class="chart-title">Постоянные траты<span>${money(recTotal)}/мес</span></div>${bars(recRows)}<div class="fine" style="text-align:left;margin-top:10px">≈ ${money(recTotal * 12)} в год · остановить — в настройках</div></div>` : ''}
-    <div class="chart"><div class="chart-title">Налоги за год<span>${money(a.total)}</span></div>${bars(taxes)}<div class="fine" style="text-align:left;margin-top:10px">${paid}</div></div>
-  </section>`;
+  const paidFed = plan.paid.fed + plan.withheld.fed;
+  const paidSt = plan.paid.state + plan.withheld.state;
+  return `<div class="split totals">
+      <span>Налог за ${p.year}<b>${money(a.total)}</b></span>
+      <span>Оплачено<b class="ok">${money(paidFed + paidSt)}</b></span>
+      <span>Осталось<b>${money(Math.max(0, plan.balance.total))}</b></span>
+    </div>
+    <div class="chart"><div class="chart-title">Налоги за год<span>${money(a.total)}</span></div>${bars(taxes)}
+      <div class="fine" style="text-align:left;margin-top:10px">Оплачено: IRS ${money(paidFed)}${plan.hasState ? ` · штат ${money(paidSt)}` : ''}</div></div>
+    ${more(plan).replace('<details class="more">', '<details class="more open-default">')}
+    ${feed(p, { cols: ['payments'], title: `Платежи налогов ${p.year}`, totals: false })}
+    <div class="actions" style="grid-template-columns:1fr"><button class="btn" data-act="pay">Оплатил налог</button></div>`;
 }
 
 const STATUS_TEXT = { covered: 'оплачен', late: 'оплачен', upcoming: '', soon: 'скоро', overdue: 'просрочен' };
@@ -390,8 +471,14 @@ function openSheet(title, body, onSubmit) {
   const form = $('#sheet-form');
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    await onSubmit(Object.fromEntries(new FormData(form).entries()), form);
+    // Once only, and close right away: Firestore shows the write locally at once,
+    // but its promise waits for the server — that wait used to invite repeat taps.
+    if (form._busy) return;
+    form._busy = true;
+    form.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+    const values = Object.fromEntries(new FormData(form).entries());
     sheet.close();
+    try { await onSubmit(values, form); } catch (e) { alert(`Не сохранилось: ${e?.message ?? e}`); }
   });
   sheet.showModal();
   setTimeout(() => form.querySelector('.amount-input')?.focus(), 30);
@@ -646,6 +733,7 @@ ${(data.recurring ?? []).length ? `<div class="sub">Постоянные тра�
 // ───────────── events ─────────────
 document.addEventListener('change', (ev) => {
   const el = ev.target;
+  if (el.dataset?.actChange === 'client') { clientSel = el.value; render(); return; }
   const extra = el.dataset?.new && el.form?.elements[el.dataset.new];
   if (extra) {
     extra.hidden = el.value !== '__new';
@@ -662,6 +750,8 @@ document.addEventListener('click', async (ev) => {
     try { await signIn(); } catch (e) { if (e?.code !== 'auth/popup-closed-by-user') gate(null, String(e?.message ?? e)); }
   } else if (act === 'signout') { sheet.close(); await signOut(); }
   else if (act === 'reload') location.reload();
+  else if (act === 'tab') { tab = b.dataset.tab; remember('tab', tab); showAll = false; render(); scrollTo(0, 0); }
+  else if (act === 'client') { clientSel = b.dataset.key; render(); scrollTo(0, 0); }
   else if (act === 'receipt-del') { const f = $('#sheet-form'); f._receipt = null; f._show(null); }
   else if (act === 'receipt-open') {
     // Synchronous, so the new tab still counts as a user gesture (Safari).
