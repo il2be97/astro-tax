@@ -177,7 +177,8 @@ function render() {
   if (!p.state) { welcome(); return; }
   const plan = currentPlan();
   const views = {
-    home: () => hero(plan) + notes() + actions(p) + feed(p),
+    home: () => hero(plan) + notes() + actions(p) + feed(p, { limit: 5, title: 'Последние записи' }),
+    records: () => recordsView(p),
     income: () => incomeView(p, plan),
     expense: () => expenseView(p),
     tax: () => taxView(p, plan),
@@ -186,7 +187,7 @@ function render() {
   root.querySelector('details.more.open-default')?.setAttribute('open', '');
 }
 
-const TABS = [['home', 'Главная', '◎'], ['income', 'Доходы', '↓'], ['expense', 'Расходы', '↑'], ['tax', 'Налоги', '%']];
+const TABS = [['home', 'Главная', '◎'], ['records', 'Записи', '≡'], ['income', 'Доходы', '↓'], ['expense', 'Расходы', '↑'], ['tax', 'Налоги', '%']];
 const tabbar = () => `<nav class="tabbar">${TABS.map(([id, label, icon]) => `
   <button class="${id === tab ? 'on' : ''}" data-act="tab" data-tab="${id}"><i>${icon}</i>${label}</button>`).join('')}</nav>`;
 
@@ -265,7 +266,7 @@ function actions(p) {
   </div>`;
 }
 
-function feed(p, { cols = ['incomes', 'expenses', 'payments'], pred = () => true, title = `Записи ${p.year}`, totals: withTotals = true } = {}) {
+function feed(p, { cols = ['incomes', 'expenses', 'payments'], pred = () => true, title = `Записи ${p.year}`, totals: withTotals = true, limit = Infinity, byMonth = false } = {}) {
   const y = String(p.year);
   const want = (col) => (x) => cols.includes(col) && pred(x, col);
   const items = [
@@ -273,7 +274,7 @@ function feed(p, { cols = ['incomes', 'expenses', 'payments'], pred = () => true
     ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).filter(want('expenses')).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: `${EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход'}${x.recurringId ? ' ↻' : ''}${x.hasReceipt ? ' 📎' : ''}`, sub: x.note || accName(x.accountId), amount: `−${money(x.amount)}`, cls: '' })),
     ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).filter(want('payments')).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: money(x.amount), cls: 'dim' })),
   ].sort((a, b) => (b.x.date ?? '').localeCompare(a.x.date ?? ''));
-  const list = showAll ? items : items.slice(0, 6);
+  const list = items.slice(0, limit);
   const sum = (col) => (data[col] ?? []).filter((x) => x.date?.startsWith(y)).reduce((t, x) => t + (Number(x.amount) || 0), 0);
   const inc = sum('incomes');
   const exp = sum('expenses');
@@ -283,15 +284,34 @@ function feed(p, { cols = ['incomes', 'expenses', 'payments'], pred = () => true
       <span>Прибыль<b>${money(inc - exp)}</b></span>
     </div>` : '';
   return `<section>
-    <div class="section-title"><span>${title}</span>${items.length > 6 ? `<button class="btn link" style="padding:0;font-size:11px" data-act="toggle-all">${showAll ? 'Свернуть' : `Все ${items.length}`}</button>` : ''}</div>
+    <div class="section-title"><span>${title}</span>${items.length > limit ? `<button class="btn link" style="padding:0;font-size:11px" data-act="tab" data-tab="records">Все ${items.length} →</button>` : ''}</div>
     ${totals}
-    <div class="feed">${list.length ? list.map((i) => `
+    <div class="feed">${list.length ? list.map((i, n) => `${byMonth && monthOf(i) !== monthOf(list[n - 1]) ? monthHead(i, list) : ''}
       <button class="item" data-act="open-item" data-col="${i.col}" data-id="${esc(i.x.id)}">
         <span class="glyph ${i.g}">${i.icon}</span>
         <span class="t"><div>${esc(i.title)}</div><small>${shortDate(i.x.date)}${i.sub ? ` · ${esc(i.sub)}` : ''}</small></span>
         <span class="a ${i.cls}">${i.amount}</span>
       </button>`).join('') : '<div class="empty">Пока пусто.</div>'}</div>
   </section>`;
+}
+
+const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+const monthOf = (i) => i?.x.date?.slice(0, 7);
+function monthHead(i, list) {
+  const m = monthOf(i);
+  const inMonth = list.filter((j) => monthOf(j) === m);
+  const t = (col) => inMonth.filter((j) => j.col === col).reduce((s, j) => s + (Number(j.x.amount) || 0), 0);
+  const parts = [t('incomes') && `<span class="ok">+${money(t('incomes'))}</span>`, t('expenses') && `−${money(t('expenses'))}`, t('payments') && `налог ${money(t('payments'))}`].filter(Boolean);
+  return `<div class="month-h"><span>${MONTHS[Number(m.slice(5, 7)) - 1]}</span><span>${parts.join(' · ')}</span></div>`;
+}
+
+let recFilter = 'all';
+function recordsView(p) {
+  const F = [['all', 'Все'], ['incomes', 'Доходы'], ['expenses', 'Расходы'], ['payments', 'Налоги']];
+  const cols = recFilter === 'all' ? ['incomes', 'expenses', 'payments'] : [recFilter];
+  return `<div class="seg filter">${F.map(([id, l]) => `<button type="button" class="${id === recFilter ? 'on' : ''}" data-act="recfilter" data-f="${id}">${l}</button>`).join('')}</div>
+    ${feed(p, { cols, title: `${F.find(([id]) => id === recFilter)[1]} · ${p.year}`, totals: recFilter === 'all', byMonth: true })}
+    <div class="actions"><button class="btn" data-act="income">＋ Доход</button><button class="btn" data-act="expense">＋ Расход</button></div>`;
 }
 
 // ───────────── charts ─────────────
@@ -770,7 +790,7 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'expense') expenseSheet();
   else if (act === 'pay') paySheet();
   else if (act === 'open-item') itemSheet(b.dataset.col, b.dataset.id);
-  else if (act === 'toggle-all') { showAll = !showAll; render(); }
+  else if (act === 'recfilter') { recFilter = b.dataset.f; render(); }
   else if (act === 'ack') await store.update('events', b.dataset.id, { status: 'read', updatedAt: new Date().toISOString() });
   else if (act === 'del-item') {
     if (!confirm('Удалить запись?')) return;
