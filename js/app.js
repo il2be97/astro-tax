@@ -180,7 +180,7 @@ function render() {
     home: () => hero(plan) + notes() + actions(p) + feed(p, { limit: 5, title: 'Последние записи' }),
     records: () => recordsView(p),
     income: () => incomeView(p, plan),
-    expense: () => expenseView(p),
+    expense: () => expenseView(p, plan),
     tax: () => taxView(p, plan),
   };
   root.innerHTML = tabbar() + (views[tab] ?? views.home)();
@@ -400,22 +400,76 @@ function incomeView(p, plan) {
     <div class="actions" style="grid-template-columns:1fr"><button class="btn" data-act="income">＋ Доход</button></div>`;
 }
 
-function expenseView(p) {
+// Who an expense went to: the note ("Rive", "RIVE " → one group), else its category.
+const catOf = (x) => EXPENSE_CATEGORIES.find((c) => c.id === x.category);
+const vendorKey = (x) => (nameKey(x.note) ? `n:${nameKey(x.note)}` : `c:${x.category}`);
+const vendorLabel = (x) => (x.note || '').trim() || catOf(x)?.label || 'Расход';
+const deductible = (x) => (Number(x.amount) || 0) * (catOf(x)?.pct ?? 1);
+let vendorSel = '';
+
+function expenseView(p, plan) {
   const y = String(p.year);
   const exps = (data.expenses ?? []).filter((x) => x.date?.startsWith(y));
+  const total = exps.reduce((t, x) => t + (Number(x.amount) || 0), 0);
+  const dedTotal = exps.reduce((t, x) => t + deductible(x), 0);
+  // Tax saved = the year's tax without these expenses minus the tax with them.
+  const saved = exps.length ? Math.max(0, buildPlan({ ...data, expenses: [] }, profile(), todayIso()).annual.total - plan.annual.total) : 0;
+  const savedOf = (ded) => (dedTotal ? (saved * ded) / dedTotal : 0);
+
+  const groups = new Map();
+  for (const x of exps) {
+    const k = vendorKey(x);
+    const g = groups.get(k) ?? { key: k, label: vendorLabel(x), v: 0, ded: 0, n: 0 };
+    g.v += Number(x.amount) || 0;
+    g.ded += deductible(x);
+    g.n += 1;
+    groups.set(k, g);
+  }
+  const vendors = [...groups.values()].sort((a, b) => b.v - a.v);
+  if (vendorSel && !groups.has(vendorSel)) vendorSel = '';
+  const sel = groups.get(vendorSel);
+  const nWord = (n) => `${n} ${n === 1 ? 'раз' : n < 5 ? 'раза' : 'раз'}`;
+
+  const pick = `<label class="field picker">Получатель
+    <select data-act-change="vendor">
+      <option value="">Все расходы · ${money(total)}</option>
+      ${vendors.map((g) => `<option value="${esc(g.key)}"${g.key === vendorSel ? ' selected' : ''}>${esc(g.label)} · ${money(g.v)}</option>`).join('')}
+    </select></label>`;
+
+  if (sel) {
+    return `${pick}
+      <section class="hero client">
+        <div class="kicker">${esc(sel.label)}</div>
+        <div class="big">${money(sel.v)}</div>
+        <div class="when">за ${p.year} · ${nWord(sel.n)}</div>
+        <div class="split">
+          <span>В вычет<b>${money(sel.ded)}</b></span>
+          <span>Экономия ≈<b class="ok">${money(savedOf(sel.ded))}</b></span>
+          <span>Реально стоит<b>${money(sel.v - savedOf(sel.ded))}</b></span>
+        </div>
+      </section>
+      ${feed(p, { cols: ['expenses'], pred: (x) => vendorKey(x) === sel.key, title: 'Платежи', totals: false })}`;
+  }
+
   const byCat = new Map();
-  for (const x of exps) { const k = EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Другое'; byCat.set(k, (byCat.get(k) ?? 0) + (Number(x.amount) || 0)); }
+  for (const x of exps) { const k = catOf(x)?.label ?? 'Другое'; byCat.set(k, (byCat.get(k) ?? 0) + (Number(x.amount) || 0)); }
   const cats = [...byCat].map(([label, v]) => ({ label, v })).sort((a, b) => b.v - a.v);
-  const catTotal = cats.reduce((t, r) => t + r.v, 0);
-  const recRows = (data.recurring ?? []).map((r) => ({ label: r.note || EXPENSE_CATEGORIES.find((c) => c.id === r.category)?.label || 'Трата', v: Number(r.amount) || 0, note: accName(r.accountId) })).sort((a, b) => b.v - a.v);
+  const recRows = (data.recurring ?? []).map((r) => ({ label: r.note || catOf(r)?.label || 'Трата', v: Number(r.amount) || 0, note: accName(r.accountId) })).sort((a, b) => b.v - a.v);
   const recTotal = recRows.reduce((t, r) => t + r.v, 0);
-  return `<div class="split totals">
-      <span>Расходы за ${p.year}<b>${money(catTotal)}</b></span>
+  const vRows = vendors.map((g) => ({ label: g.label, v: g.v, key: g.key, note: `${nWord(g.n)} · экономия ≈ ${money(savedOf(g.ded))}` }));
+  const effRate = dedTotal ? saved / dedTotal : 0;
+
+  return `${pick}
+    <div class="split totals">
+      <span>Расходы за ${p.year}<b>${money(total)}</b></span>
+      <span>Экономия на налогах ≈<b class="ok">${money(saved)}</b></span>
       <span>Постоянные<b>${money(recTotal)}/мес</b></span>
     </div>
+    ${exps.length ? `<div class="fine" style="text-align:left;margin:-2px 2px 4px">Каждый $100 расходов в вычет сейчас экономит ≈ ${money(effRate * 100)} налога (федеральный + самозанятость + штат).${p.workMode === 'w2' ? ' При работе только по W-2 расходы не вычитаются.' : ''}</div>` : ''}
+    ${vRows.length ? `<div class="chart"><div class="chart-title">По получателям<span>${money(total)}</span></div>${bars(vRows, undefined, 'vendor')}<div class="fine" style="text-align:left;margin-top:10px">Нажми — все платежи этому получателю</div></div>` : ''}
     ${recRows.length ? `<div class="chart"><div class="chart-title">Постоянные траты<span>${money(recTotal)}/мес</span></div>${bars(recRows)}<div class="fine" style="text-align:left;margin-top:10px">≈ ${money(recTotal * 12)} в год · остановить — в настройках</div></div>` : ''}
-    ${cats.length ? `<div class="chart"><div class="chart-title">По категориям<span>${money(catTotal)}</span></div>${bars(cats)}</div>` : ''}
-    ${feed(p, { cols: ['expenses'], title: `Расходы ${p.year}`, totals: false })}
+    ${cats.length ? `<div class="chart"><div class="chart-title">По категориям<span>${money(total)}</span></div>${bars(cats)}</div>` : ''}
+    ${feed(p, { cols: ['expenses'], title: `Расходы ${p.year}`, totals: false, limit: 10 })}
     <div class="actions" style="grid-template-columns:1fr"><button class="btn" data-act="expense">＋ Расход</button></div>`;
 }
 
@@ -754,6 +808,7 @@ ${(data.recurring ?? []).length ? `<div class="sub">Постоянные тра�
 document.addEventListener('change', (ev) => {
   const el = ev.target;
   if (el.dataset?.actChange === 'client') { clientSel = el.value; render(); return; }
+  if (el.dataset?.actChange === 'vendor') { vendorSel = el.value; render(); return; }
   const extra = el.dataset?.new && el.form?.elements[el.dataset.new];
   if (extra) {
     extra.hidden = el.value !== '__new';
@@ -772,6 +827,7 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'reload') location.reload();
   else if (act === 'tab') { tab = b.dataset.tab; remember('tab', tab); showAll = false; render(); scrollTo(0, 0); }
   else if (act === 'client') { clientSel = b.dataset.key; render(); scrollTo(0, 0); }
+  else if (act === 'vendor') { vendorSel = b.dataset.key; render(); scrollTo(0, 0); }
   else if (act === 'receipt-del') { const f = $('#sheet-form'); f._receipt = null; f._show(null); }
   else if (act === 'receipt-open') {
     // Synchronous, so the new tab still counts as a user gesture (Safari).
