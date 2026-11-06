@@ -8,7 +8,7 @@
 
 import { FIREBASE_CONFIG } from './config.js';
 
-export const COLLECTIONS = ['accounts', 'clients', 'incomes', 'expenses', 'payments', 'events'];
+export const COLLECTIONS = ['accounts', 'clients', 'recurring', 'incomes', 'expenses', 'payments', 'events'];
 const SDK = 'https://www.gstatic.com/firebasejs/11.10.0';
 
 export const cloudConfigured = () => Boolean(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId);

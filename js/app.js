@@ -90,6 +90,7 @@ async function sync() {
   syncing = true;
   try {
     await mergeDuplicates();
+    await runRecurring();
     const today = todayIso();
     const now = new Date().toISOString();
     const ops = eventOps(data.events ?? [], desiredEvents(currentPlan(), today), now);
@@ -100,6 +101,29 @@ async function sync() {
     const stale = !data.profile.syncedAt || Date.now() - Date.parse(data.profile.syncedAt) > 10 * 60 * 1000;
     if (ops.length || stale) await store.setProfile({ syncedAt: now });
   } finally { syncing = false; }
+}
+
+// Monthly expenses: add every month after rule.last up to today (ids are
+// deterministic, and rule.last moves forward, so a deleted month stays deleted).
+async function runRecurring() {
+  const today = todayIso();
+  const nextYm = (ym) => { const [y, m] = ym.split('-').map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; };
+  for (const r of data.recurring ?? []) {
+    let ym = r.last || r.start;
+    let last = r.last;
+    for (;;) {
+      const n = nextYm(ym);
+      const lastDay = new Date(Number(n.slice(0, 4)), Number(n.slice(5, 7)), 0).getDate();
+      const date = `${n}-${String(Math.min(r.day || 1, lastDay)).padStart(2, '0')}`;
+      if (date > today) break;
+      await store.put('expenses', `${r.id}-${n}`, {
+        date, amount: r.amount, category: r.category, accountId: r.accountId ?? '', note: r.note ?? '', recurringId: r.id,
+      });
+      ym = n;
+      last = n;
+    }
+    if (last !== r.last) await store.update('recurring', r.id, { last });
+  }
 }
 
 // Accounts / clients with the same name (made twice by accident) → keep the first,
@@ -231,8 +255,8 @@ function actions(p) {
 function feed(p) {
   const y = String(p.year);
   const items = [
-    ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: clientName(x) || 'Доход', sub: accName(x.accountId), amount: `+${money(x.amount)}`, cls: 'ok' })),
-    ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: `${EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход'}${x.hasReceipt ? ' 📎' : ''}`, sub: x.note || accName(x.accountId), amount: `−${money(x.amount)}`, cls: '' })),
+    ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: clientName(x) || (x.type === 'w2' ? 'Зарплата' : 'Доход'), sub: [x.type === 'w2' ? 'W-2' : '', accName(x.accountId)].filter(Boolean).join(' · '), amount: `+${money(x.amount)}`, cls: 'ok' })),
+    ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: `${EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход'}${x.recurringId ? ' ↻' : ''}${x.hasReceipt ? ' 📎' : ''}`, sub: x.note || accName(x.accountId), amount: `−${money(x.amount)}`, cls: '' })),
     ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: money(x.amount), cls: 'dim' })),
   ].sort((a, b) => (b.x.date ?? '').localeCompare(a.x.date ?? ''));
   const list = showAll ? items : items.slice(0, 6);
@@ -282,13 +306,20 @@ function months(p) {
 function charts(p, plan) {
   const y = String(p.year);
   const inc = (data.incomes ?? []).filter((x) => x.date?.startsWith(y));
-  if (!inc.length) return '';
+  const exps = (data.expenses ?? []).filter((x) => x.date?.startsWith(y));
+  if (!inc.length && !exps.length) return '';
+  const byCat = new Map();
+  for (const x of exps) { const k = EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Другое'; byCat.set(k, (byCat.get(k) ?? 0) + (Number(x.amount) || 0)); }
+  const cats = [...byCat].map(([label, v]) => ({ label, v })).sort((a, b) => b.v - a.v);
+  const rec = data.recurring ?? [];
+  const recRows = rec.map((r) => ({ label: r.note || EXPENSE_CATEGORIES.find((c) => c.id === r.category)?.label || 'Трата', v: Number(r.amount) || 0, note: accName(r.accountId) })).sort((a, b) => b.v - a.v);
+  const recTotal = recRows.reduce((t, r) => t + r.v, 0);
   const by = new Map();
-  for (const x of inc) { const k = clientName(x) || 'Без заказчика'; by.set(k, (by.get(k) ?? 0) + (Number(x.amount) || 0)); }
+  for (const x of inc) { const k = clientName(x) || (x.type === 'w2' ? 'Зарплата W-2' : 'Без заказчика'); by.set(k, (by.get(k) ?? 0) + (Number(x.amount) || 0)); }
   let clients = [...by].map(([label, v]) => ({ label, v })).sort((a, b) => b.v - a.v);
   if (clients.length > 6) clients = [...clients.slice(0, 5), { label: 'Другие', v: clients.slice(5).reduce((t, r) => t + r.v, 0) }];
   const total = clients.reduce((t, r) => t + r.v, 0);
-  clients.forEach((r) => { r.note = `${Math.round((r.v / total) * 100)}%`; });
+  clients.forEach((r) => { r.note = total ? `${Math.round((r.v / total) * 100)}%` : ''; });
 
   const a = plan.annual;
   const st = plan.state?.code ?? '';
@@ -302,8 +333,10 @@ function charts(p, plan) {
 
   return `<section class="charts">
     <div class="section-title"><span>Графики ${p.year}</span></div>
-    <div class="chart"><div class="chart-title">Доход по заказчикам</div>${bars(clients)}</div>
-    <div class="chart"><div class="chart-title">Доход по месяцам<span></span></div>${months(p)}</div>
+    ${inc.length ? `<div class="chart"><div class="chart-title">Доход по заказчикам</div>${bars(clients)}</div>
+    <div class="chart"><div class="chart-title">Доход по месяцам<span></span></div>${months(p)}</div>` : ''}
+    ${cats.length ? `<div class="chart"><div class="chart-title">Расходы по категориям<span>${money(cats.reduce((t, r) => t + r.v, 0))}</span></div>${bars(cats)}</div>` : ''}
+    ${recRows.length ? `<div class="chart"><div class="chart-title">Постоянные траты<span>${money(recTotal)}/мес</span></div>${bars(recRows)}<div class="fine" style="text-align:left;margin-top:10px">≈ ${money(recTotal * 12)} в год · остановить — в настройках</div></div>` : ''}
     <div class="chart"><div class="chart-title">Налоги за год<span>${money(a.total)}</span></div>${bars(taxes)}<div class="fine" style="text-align:left;margin-top:10px">${paid}</div></div>
   </section>`;
 }
@@ -425,7 +458,7 @@ function incomeSheet(x) {
     <label class="field">Дата<input name="date" type="date" value="${x?.date ?? todayIso()}" required></label>
     ${clientSelect(x?.clientId ?? '', x?.clientId ? '' : (x?.source ?? ''))}
     ${accountSelect(x ? x.accountId : undefined)}
-    ${mode === 'mixed' || (x && type !== (mode === 'w2' ? 'w2' : 'se')) ? `<div class="seg"><label><input type="radio" name="type" value="se"${type === 'se' ? ' checked' : ''}>1099</label><label><input type="radio" name="type" value="w2"${type === 'w2' ? ' checked' : ''}>Зарплата W-2</label></div>` : `<input type="hidden" name="type" value="${type}">`}
+    <div class="seg"><label><input type="radio" name="type" value="se"${type === 'se' ? ' checked' : ''}>1099 / самозанятость</label><label><input type="radio" name="type" value="w2"${type === 'w2' ? ' checked' : ''}>Зарплата W-2</label></div>
     <div class="row2 w2"${type === 'w2' ? '' : ' hidden'}>
       <label class="field">Удержано IRS<input name="fedWithheld" type="number" inputmode="decimal" step="0.01" min="0" placeholder="$0" value="${x?.fedWithheld || ''}"></label>
       <label class="field">Удержано штатом<input name="stateWithheld" type="number" inputmode="decimal" step="0.01" min="0" placeholder="$0" value="${x?.stateWithheld || ''}"></label>
@@ -450,6 +483,7 @@ function expenseSheet(x) {
       <label class="field">Заметка<input name="note" placeholder="необязательно" value="${esc(x?.note ?? '')}"></label>
     </div>
     ${accountSelect(x ? x.accountId : undefined)}
+    ${x ? (x.recurringId ? '<div class="fine" style="text-align:left">↻ Постоянная трата — остановить можно в настройках.</div>' : '') : '<label class="check"><input type="checkbox" name="monthly"> Каждый месяц (подписка, аренда…)</label>'}
     <div class="field">Чек
       <div class="receipt" id="receipt">
         ${x?.hasReceipt ? '<span class="dim">Загрузка…</span>' : ''}
@@ -462,7 +496,15 @@ function expenseSheet(x) {
     const rec = { date: r.date, amount: amt(r.amount), category: r.category, accountId, note: (r.note || '').trim() };
     const pending = form._receipt; // undefined = unchanged, null = removed, object = new
     if (pending !== undefined) rec.hasReceipt = Boolean(pending);
-    const id = x?.id ?? crypto.randomUUID();
+    let id = x?.id ?? crypto.randomUUID();
+    if (!x && r.monthly) {
+      // A monthly rule; this record is its first month, sync() adds the following ones.
+      const rid = crypto.randomUUID();
+      const ym = r.date.slice(0, 7);
+      await store.put('recurring', rid, { ...rec, day: Number(r.date.slice(8, 10)), start: ym, last: ym });
+      id = `${rid}-${ym}`;
+      rec.recurringId = rid;
+    }
     if (pending) await store.saveReceipt(id, pending);
     else if (pending === null && x?.hasReceipt) await store.deleteReceipt(id);
     if (x) await save('expenses', x, rec);
@@ -574,6 +616,9 @@ function settingsSheet() {
 
 ${namedList('accounts', 'Счета', accs, 'Chase, Stripe…')}
 ${namedList('clients', 'Заказчики', data.clients ?? [], 'Имя заказчика')}
+${(data.recurring ?? []).length ? `<div class="sub">Постоянные траты</div>
+    <div class="acc-list">${data.recurring.map((r) => listRow('recurring', { id: r.id, name: `${r.note || EXPENSE_CATEGORIES.find((c) => c.id === r.category)?.label || 'Трата'} · ${money(r.amount)}/мес` })).join('')}</div>
+    <div class="fine" style="text-align:left">× — остановить. Уже списанные месяцы останутся.</div>` : ''}
 
     <details class="more" style="background:none;border:0">
       <summary style="padding:10px 0">Точнее расчёт</summary>
