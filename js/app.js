@@ -89,6 +89,7 @@ async function sync() {
   if (syncing || !data?.profile?.state) return;
   syncing = true;
   try {
+    await mergeDuplicates();
     const today = todayIso();
     const now = new Date().toISOString();
     const ops = eventOps(data.events ?? [], desiredEvents(currentPlan(), today), now);
@@ -99,6 +100,25 @@ async function sync() {
     const stale = !data.profile.syncedAt || Date.now() - Date.parse(data.profile.syncedAt) > 10 * 60 * 1000;
     if (ops.length || stale) await store.setProfile({ syncedAt: now });
   } finally { syncing = false; }
+}
+
+// Accounts / clients with the same name (made twice by accident) → keep the first,
+// move its records over, delete the rest. Idempotent: does nothing once clean.
+async function mergeDuplicates() {
+  const refs = { accounts: ['accountId', ['incomes', 'expenses']], clients: ['clientId', ['incomes']] };
+  for (const [col, [field, users]] of Object.entries(refs)) {
+    const keep = new Map();
+    for (const a of data[col] ?? []) {
+      const key = (a.name ?? '').trim().toLowerCase();
+      const first = keep.get(key);
+      if (!first) { keep.set(key, a); continue; }
+      for (const u of users) {
+        for (const x of (data[u] ?? []).filter((i) => i[field] === a.id)) await store.update(u, x.id, { [field]: first.id });
+      }
+      if (!first.last4 && a.last4) await store.update(col, first.id, { last4: a.last4 });
+      await store.remove(col, a.id);
+    }
+  }
 }
 
 // ───────────── screens ─────────────
