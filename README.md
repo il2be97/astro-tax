@@ -3,7 +3,7 @@
 Личная налоговая консоль (США) в стиле Astro Routine / Nomad: штат, режим работы,
 счета, доходы, списания, квартальные платежи 1040-ES — сколько и когда платить.
 
-Статический сайт без сборки (ES-модули) → GitHub Pages. Данные — Firebase
+Статический сайт без сборки (ES-модули) → GitHub Pages (публикуется прямо из ветки `main`). Данные — Firebase
 Firestore с офлайн-кэшем. Регистрация — вход через Google; у каждого пользователя
 свои данные, чужие не видны никому.
 
@@ -43,7 +43,7 @@ Firestore с офлайн-кэшем. Регистрация — вход чер
    firebase use --add        # выбрать проект
    firebase deploy --only firestore:rules
    ```
-3. **GitHub Pages:** запушить в `main`, затем Settings → Pages → Source: **GitHub Actions**.
+3. **GitHub Pages** уже включён: Settings → Pages → Deploy from branch `main` / root. Каждый push в `main` = новая версия сайта.
 4. **Домен для входа:** Firebase → Authentication → Settings → Authorized domains → добавить `<user>.github.io`.
 
 ### Кто что видит
