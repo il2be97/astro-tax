@@ -11,6 +11,12 @@ const money = (n) => {
   const v = Math.round(Number(n) || 0);
   return `${v < 0 ? '−' : ''}$${Math.abs(v).toLocaleString('en-US')}`;
 };
+// Exact amount for a single record: cents only when there are any ($1.50, $20).
+const cash = (n) => {
+  const v = Math.round((Number(n) || 0) * 100) / 100;
+  const cents = Math.abs(v % 1) > 0.001;
+  return `${v < 0 ? '−' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 })}`;
+};
 const longDate = (s) => parseIso(s).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
 const shortDate = (s) => parseIso(s).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const plural = (n, a, b, c) => {
@@ -275,9 +281,9 @@ function feed(p, { cols = ['incomes', 'expenses', 'payments'], pred = () => true
   const y = String(p.year);
   const want = (col) => (x) => cols.includes(col) && pred(x, col);
   const items = [
-    ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).filter(want('incomes')).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: clientName(x) || (x.type === 'w2' ? 'Зарплата' : 'Доход'), sub: [x.type === 'w2' ? 'W-2' : '', accName(x.accountId)].filter(Boolean).join(' · '), amount: `+${money(x.amount)}`, cls: 'ok' })),
-    ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).filter(want('expenses')).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: `${(x.note || '').trim() || (EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход')}${x.recurringId ? ' ↻' : ''}${x.hasReceipt ? ' 📎' : ''}`, sub: [(x.note || '').trim() ? EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label : '', accName(x.accountId) || 'без счёта'].filter(Boolean).join(' · '), amount: `−${money(x.amount)}`, cls: '' })),
-    ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).filter(want('payments')).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: money(x.amount), cls: 'dim' })),
+    ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).filter(want('incomes')).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: clientName(x) || (x.type === 'w2' ? 'Зарплата' : 'Доход'), sub: [x.type === 'w2' ? 'W-2' : '', accName(x.accountId)].filter(Boolean).join(' · '), amount: `+${cash(x.amount)}`, cls: 'ok' })),
+    ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).filter(want('expenses')).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: `${(x.note || '').trim() || (EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход')}${x.recurringId ? ' ↻' : ''}${x.hasReceipt ? ' 📎' : ''}`, sub: [(x.note || '').trim() ? EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label : '', accName(x.accountId) || 'без счёта'].filter(Boolean).join(' · '), amount: `−${cash(x.amount)}`, cls: '' })),
+    ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).filter(want('payments')).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: cash(x.amount), cls: 'dim' })),
   ].sort((a, b) => (b.x.date ?? '').localeCompare(a.x.date ?? ''));
   const list = items.slice(0, limit);
   const sum = (col) => (data[col] ?? []).filter((x) => x.date?.startsWith(y)).reduce((t, x) => t + (Number(x.amount) || 0), 0);
