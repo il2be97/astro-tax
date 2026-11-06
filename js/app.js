@@ -56,20 +56,28 @@ async function boot() {
   // ?local — try the app without an account (data stays in this browser).
   if (!cloudConfigured() || new URLSearchParams(location.search).has('local')) { start(new LocalStore()); return; }
   gate('Подключение…');
-  try { await initCloud(); } catch (e) { gate('Не удалось подключиться. Проверь интернет.', String(e?.message ?? e)); return; }
-  await watchAuth((u) => {
-    user = u;
-    if (unwatch) { unwatch(); unwatch = null; }
-    if (!u) { store = null; data = null; $('#settings-btn').hidden = true; gate(); return; }
-    start(new CloudStore(u.uid));
-  });
+  const slow = setTimeout(() => gate('Не удаётся подключиться.', 'Проверь интернет или отключи блокировщик рекламы для этого сайта.', true), 12000);
+  try {
+    await initCloud();
+    await watchAuth((u) => {
+      clearTimeout(slow);
+      user = u;
+      if (unwatch) { unwatch(); unwatch = null; }
+      if (!u) { store = null; data = null; $('#settings-btn').hidden = true; gate(); return; }
+      gate('Загрузка данных…');
+      start(new CloudStore(u.uid));
+    });
+  } catch (e) { clearTimeout(slow); gate('Не удалось подключиться.', String(e?.message ?? e), true); }
 }
 
 function start(s) {
   store = s;
   data = null;
+  // Firestore waits for the server on a first load; never leave the user staring at a spinner.
+  const slow = setTimeout(() => { if (!data) gate('Данные не загружаются.', 'Проверь интернет или отключи блокировщик рекламы для этого сайта.', true); }, 12000);
   unwatch = store.watch((snap, err) => {
-    if (err) { gate('Нет доступа к данным.', String(err?.message ?? err)); return; }
+    clearTimeout(slow);
+    if (err) { gate('Нет доступа к данным.', String(err?.message ?? err), true); return; }
     data = snap;
     render();
     sync();
@@ -94,7 +102,7 @@ async function sync() {
 }
 
 // ───────────── screens ─────────────
-function gate(message, error) {
+function gate(message, error, stuck) {
   root.innerHTML = `
     <section class="gate"><div class="hero">
       <div class="logo-mark" style="margin:0 auto 14px">A</div>
@@ -102,6 +110,9 @@ function gate(message, error) {
       <p class="when" style="margin:14px 0 22px">${esc(message ?? 'Налоги США без головной боли: сколько и когда платить.')}</p>
       ${message ? '' : '<button class="btn primary block" data-act="signin">Войти через Google</button>'}
       ${error ? `<div class="err">${esc(error)}</div>` : ''}
+      ${stuck ? `<div style="display:flex;gap:10px;margin-top:18px">
+        <button class="btn primary block" data-act="reload">Обновить</button>
+        ${user ? '<button class="btn block" data-act="signout">Выйти</button>' : ''}</div>` : ''}
     </div></section>`;
   syncDot();
 }
@@ -412,6 +423,7 @@ document.addEventListener('click', async (ev) => {
   if (act === 'signin') {
     try { await signIn(); } catch (e) { if (e?.code !== 'auth/popup-closed-by-user') gate(null, String(e?.message ?? e)); }
   } else if (act === 'signout') { sheet.close(); await signOut(); }
+  else if (act === 'reload') location.reload();
   else if (act === 'close') sheet.close();
   else if (act === 'settings') settingsSheet();
   else if (act === 'income') incomeSheet();
