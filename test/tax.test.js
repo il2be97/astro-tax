@@ -84,7 +84,8 @@ test('plan: underpaid closed quarters are overdue with penalty', () => {
   assert.equal(q3.status, 'overdue');
   assert.ok(q3.penalty > 0);
   assert.equal(q4.status, 'upcoming');
-  assert.equal(p.next.q, 1);
+  assert.equal(p.next.q, 3);
+  assert.equal(p.overdueFrom, 1);
   assert.equal(p.hasState, false);
 });
 

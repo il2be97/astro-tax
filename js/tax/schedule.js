@@ -172,7 +172,10 @@ export function plan(data, profile, today) {
   };
   balance.total = balance.fed + balance.state;
 
-  const next = qs.find((q) => q.status === 'overdue') ?? qs.find((q) => q.daysLeft >= 0 && q.toPay.total >= 1) ?? null;
+  // Amounts are cumulative, so the latest overdue quarter carries the whole
+  // shortfall; otherwise the next upcoming one.
+  const overdue = qs.filter((q) => q.status === 'overdue');
+  const next = overdue.at(-1) ?? qs.find((q) => q.daysLeft >= 0 && q.toPay.total >= 1) ?? null;
 
   return {
     year,
@@ -191,5 +194,6 @@ export function plan(data, profile, today) {
     balance,
     returnDue: returnDue(year),
     next,
+    overdueFrom: overdue[0]?.q ?? null,
   };
 }
