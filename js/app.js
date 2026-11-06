@@ -527,7 +527,13 @@ function more(plan) {
     <div class="more-body">
       <div class="quarters">${qs}</div>
       <div class="lines">
-        ${line(`Прибыль${proj ? ' (прогноз на год)' : ''}`, money(plan.projected.seNet + plan.projected.wages))}
+        ${line(`Доход${proj ? ' (прогноз на год)' : ''}`, money(plan.projected.seGross + plan.projected.wages))}
+        ${line(`− Расходы в вычет${proj ? ` (за год ≈, внесено ${money(plan.ytd.seExpenses + plan.ytd.adjustments)})` : ''}`, money(plan.projected.seExpenses + plan.projected.adjustments))}
+        ${line('= Прибыль', money(plan.projected.seNet + plan.projected.wages - plan.projected.adjustments))}
+        ${a.halfSE ? line('− ½ налога на самозанятость', money(a.halfSE)) : ''}
+        ${line('− Стандартный вычет', money(a.stdDeduction))}
+        ${a.qbiDeduction ? line('− QBI (20% бизнес-дохода)', money(a.qbiDeduction)) : ''}
+        ${line('= Облагаемый доход (федеральный)', money(a.taxable))}
         ${line('Федеральный подоходный', money(a.incomeTax))}
         ${a.seTax ? line('Self-employment (соцстрах + Medicare)', money(a.seTax)) : ''}
         ${a.addlMedicare ? line('Доп. Medicare', money(a.addlMedicare)) : ''}
