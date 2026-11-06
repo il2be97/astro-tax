@@ -163,6 +163,7 @@ function hero(plan) {
       <div class="kicker">${left > 1 ? 'Остаток к декларации' : 'Всё оплачено'}</div>
       <div class="big">${money(left)}</div>
       <div class="when">${left > 1 ? `до ${longDate(plan.returnDue)}` : 'квартальные платежи закрыты'}</div>
+      ${left > 1 ? kinds(plan, Math.max(0, plan.balance.fed), Math.max(0, plan.balance.state)) : ""}
       ${year}
     </section>`;
   }
@@ -172,10 +173,24 @@ function hero(plan) {
     <div class="kicker">${late ? 'Просрочено' : 'Следующий платёж'}</div>
     <div class="big">${money(n.toPay.total)}</div>
     <div class="when">${late ? `${plan.overdueFrom < n.q ? `за Q${plan.overdueFrom}–Q${n.q}` : `Q${n.q}`} · срок был ${longDate(n.due)}` : n.daysLeft === 0 ? 'сегодня' : `до ${longDate(n.due)} · через ${days(d)}`}</div>
-    ${plan.hasState && n.toPay.state >= 1 && n.toPay.fed >= 1 ? `<div class="parts"><span>IRS<b>${money(n.toPay.fed)}</b></span><span>${esc(plan.state?.code)}<b>${money(n.toPay.state)}</b></span></div>` : ''}
+    ${kinds(plan, n.toPay.fed, n.toPay.state)}
     ${year}
     <button class="btn primary block" data-act="pay">Оплатил</button>
   </section>`;
+}
+
+// Split a federal amount into income tax vs self-employment tax (both go to the IRS)
+// in the same proportion as the annual estimate; the state part is separate.
+function kinds(plan, fed, state) {
+  const a = plan.annual;
+  const seShare = a.federal > 0 ? a.seTax / a.federal : 0;
+  const cells = [
+    ['Федеральный', fed * (1 - seShare)],
+    ['Самозанятость', fed * seShare],
+    [plan.hasState ? `Штат ${esc(plan.state?.code ?? '')}` : 'Штат', plan.hasState ? state : 0],
+  ].filter(([, v]) => v >= 1);
+  if (cells.length < 2) return '';
+  return `<div class="split">${cells.map(([l, v]) => `<span>${l}<b>${money(v)}</b></span>`).join('')}</div>`;
 }
 
 // Only events that add something beyond the hero.
