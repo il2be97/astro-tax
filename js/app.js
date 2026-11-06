@@ -65,7 +65,7 @@ async function boot() {
       clearTimeout(slow);
       user = u;
       if (unwatch) { unwatch(); unwatch = null; }
-      if (!u) { store = null; data = null; $('#settings-btn').hidden = true; gate(); return; }
+      if (!u) { store = null; data = null; $('#settings-btn').hidden = true; $('#menu-btn').hidden = true; gate(); return; }
       gate('Загрузка данных…');
       start(new CloudStore(u.uid));
     });
@@ -183,7 +183,12 @@ function render() {
     expense: () => expenseView(p, plan),
     tax: () => taxView(p, plan),
   };
-  root.innerHTML = tabbar() + (views[tab] ?? views.home)();
+  const title = TABS.find(([id]) => id === tab)?.[1] ?? '';
+  root.innerHTML = `${tabbar()}<h1 class="page-title">${title}</h1>${(views[tab] ?? views.home)()}`;
+  $('#drawer').innerHTML = `<div class="drawer-head">Astro · Tax</div>${TABS.map(([id, label, icon]) => `
+    <button class="${id === tab ? 'on' : ''}" data-act="tab" data-tab="${id}"><i>${icon}</i>${label}</button>`).join('')}
+    <button class="drawer-settings" data-act="settings"><i>⚙</i>Настройки</button>`;
+  $('#menu-btn').hidden = false;
   root.querySelector('details.more.open-default')?.setAttribute('open', '');
 }
 
@@ -825,7 +830,9 @@ document.addEventListener('click', async (ev) => {
     try { await signIn(); } catch (e) { if (e?.code !== 'auth/popup-closed-by-user') gate(null, String(e?.message ?? e)); }
   } else if (act === 'signout') { sheet.close(); await signOut(); }
   else if (act === 'reload') location.reload();
-  else if (act === 'tab') { tab = b.dataset.tab; remember('tab', tab); showAll = false; render(); scrollTo(0, 0); }
+  else if (act === 'menu') toggleDrawer(!document.body.classList.contains('drawer-open'));
+  else if (act === 'menu-close') toggleDrawer(false);
+  else if (act === 'tab') { toggleDrawer(false); tab = b.dataset.tab; remember('tab', tab); showAll = false; render(); scrollTo(0, 0); }
   else if (act === 'client') { clientSel = b.dataset.key; render(); scrollTo(0, 0); }
   else if (act === 'vendor') { vendorSel = b.dataset.key; render(); scrollTo(0, 0); }
   else if (act === 'receipt-del') { const f = $('#sheet-form'); f._receipt = null; f._show(null); }
@@ -841,7 +848,7 @@ document.addEventListener('click', async (ev) => {
     t.textContent = b.dataset.label;
   }
   else if (act === 'close') sheet.close();
-  else if (act === 'settings') settingsSheet();
+  else if (act === 'settings') { toggleDrawer(false); settingsSheet(); }
   else if (act === 'income') incomeSheet();
   else if (act === 'expense') expenseSheet();
   else if (act === 'pay') paySheet();
@@ -879,6 +886,12 @@ document.addEventListener('keydown', (ev) => {
   ev.preventDefault();
   ev.target.nextElementSibling?.click();
 });
+
+function toggleDrawer(open) {
+  document.body.classList.toggle('drawer-open', open);
+  $('#drawer-scrim').hidden = !open;
+}
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') toggleDrawer(false); });
 
 sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheet.close(); });
 window.addEventListener('online', syncDot);

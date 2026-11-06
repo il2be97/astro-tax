@@ -9,11 +9,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=a33e8d4f">
+  <link rel="stylesheet" href="css/style.css?v=11150e05">
 </head>
 <body>
   <div class="backdrop" aria-hidden="true"></div>
   <header class="topbar">
+    <button class="icon-btn menu-btn" id="menu-btn" data-act="menu" aria-label="Меню" hidden><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <div class="logo"><span class="logo-mark">A</span><span class="logo-name">Astro<span>·</span>Tax</span></div>
     <span class="sync" id="sync" title="Синхронизация"></span>
     <button class="icon-btn" id="settings-btn" data-act="settings" aria-label="Настройки" hidden>
@@ -21,10 +22,12 @@
     </button>
   </header>
   <main id="root"></main>
+  <div class="drawer-scrim" id="drawer-scrim" data-act="menu-close" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Разделы"></aside>
   <dialog id="sheet" class="sheet"><div id="sheet-body"></div></dialog>
   <script type="importmap">{
   "imports": {
-    "./js/app.js": "./js/app.js?v=75c9cedf",
+    "./js/app.js": "./js/app.js?v=233b7efa",
     "./js/config.js": "./js/config.js?v=bb13ccf0",
     "./js/store.js": "./js/store.js?v=28dcc850",
     "./js/tax/engine.js": "./js/tax/engine.js?v=debb84b8",
@@ -34,6 +37,6 @@
     "./js/tax/sync.js": "./js/tax/sync.js?v=c89c6b84"
   }
 }</script>
-  <script type="module" src="js/app.js?v=75c9cedf"></script>
+  <script type="module" src="js/app.js?v=233b7efa"></script>
 </body>
 </html>

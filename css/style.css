@@ -236,17 +236,27 @@ details.more[open] summary::after { transform: rotate(-90deg); }
 .tabbar button i { font-style: normal; font-family: var(--mono); font-size: 16px; line-height: 1; }
 .tabbar button.on { color: var(--accent); }
 main#root { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
-/* Wide screens: tabs sit on top under the header, like a normal website. */
+/* Wide screens: no bottom bar; sections live in a left drawer opened by ☰. */
+.menu-btn, .drawer, .drawer-scrim, .page-title { display: none; }
 @media (min-width: 768px) {
   main#root { padding-bottom: 40px; }
-  .tabbar { position: sticky; top: 0; bottom: auto; left: auto; right: auto; z-index: 15;
-    display: flex; gap: 4px; padding: 4px; margin: 0 0 6px; background: rgba(14, 18, 28, .9);
-    border: 1px solid var(--line); border-radius: 14px; }
-  .tabbar button { flex: 1; flex-direction: row; justify-content: center; gap: 8px; font-size: 13px; padding: 9px 0; border-radius: 10px; }
-  .tabbar button i { font-size: 13px; }
-  .tabbar button:hover { color: var(--text); }
-  .tabbar button.on { background: var(--field); box-shadow: inset 0 0 0 1px var(--accent); }
+  .tabbar { display: none; }
+  .menu-btn:not([hidden]) { display: inline-grid; margin-right: 6px; }
+  .page-title { display: block; margin: 2px 2px 4px; font-size: 22px; font-weight: 600; letter-spacing: .2px; color: var(--text); }
+  .drawer { display: flex; flex-direction: column; gap: 4px; position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; width: 260px;
+    padding: 18px 12px; background: #0B0F18; border-right: 1px solid var(--line); transform: translateX(-100%); transition: transform .22s ease; }
+  .drawer-open .drawer { transform: none; box-shadow: 0 0 40px rgba(0, 0, 0, .5); }
+  .drawer-scrim:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(0, 0, 0, .45); }
+  .drawer-head { font-size: 11px; letter-spacing: 1.8px; text-transform: uppercase; color: var(--text-3); font-weight: 600; padding: 4px 12px 14px; }
+  .drawer button { display: flex; align-items: center; gap: 12px; background: none; border: 0; border-radius: 10px; padding: 11px 12px;
+    color: var(--text-2); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+  .drawer button i { font-style: normal; font-family: var(--mono); width: 18px; text-align: center; color: var(--text-3); }
+  .drawer button:hover { background: var(--card); color: var(--text); }
+  .drawer button.on { background: var(--field); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+  .drawer button.on i { color: var(--accent); }
+  .drawer-settings { margin-top: auto; }
 }
+
 .bar-row.tap { cursor: pointer; }
 .bar-row.tap:hover .bar-head span { color: var(--text); }
 .picker { margin-bottom: 2px; }
