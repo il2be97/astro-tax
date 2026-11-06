@@ -53,7 +53,7 @@ const profile = () => {
     ...p,
     filingStatus: p.filingStatus || 'single',
     workMode: p.workMode || 'self',
-    projection: p.projection || 'pace',
+    projection: p.projection || 'actual',
     year: Number(p.year) || Number(todayIso().slice(0, 4)),
   };
 };
@@ -795,6 +795,10 @@ function settingsSheet() {
       <span class="hint">${!st ? '' : st.kind === 'none' ? 'Без подоходного налога штата' : st.kind === 'flat' ? `Ставка ${st.rate}%` : `Ставка примерно ${r.rate}% — можно уточнить ниже`}</span></label>
     <label class="field">Как работаешь<select name="workMode">${opts(WORK_MODES, p.workMode)}</select></label>
     <label class="field">Статус подачи<select name="filingStatus">${opts(FILING_STATUSES, p.filingStatus)}</select></label>
+    <label class="field">Как считать доход за год<select name="projection">
+      <option value="actual"${p.projection === 'actual' ? ' selected' : ''}>Только внесённое</option>
+      <option value="pace"${p.projection === 'pace' ? ' selected' : ''}>Прогноз: продолжу в том же темпе</option>
+    </select><span class="hint">Прогноз растягивает доход и расходы с начала года на весь год.</span></label>
 
 ${namedList('accounts', 'Счета', accs, 'Chase, Stripe…')}
 ${namedList('clients', 'Заказчики', data.clients ?? [], 'Имя заказчика')}
@@ -818,7 +822,7 @@ ${(data.recurring ?? []).length ? `<div class="sub">Постоянные тра�
     <button class="btn primary block" type="submit">Сохранить</button>
     ${store.mode === 'cloud' ? `<button class="btn link" type="button" data-act="signout">Выйти${user?.email ? ` · ${esc(user.email)}` : ''}</button>` : ''}`, async (v, form) => {
     await store.setProfile({
-      state: v.state, workMode: v.workMode, filingStatus: v.filingStatus,
+      state: v.state, workMode: v.workMode, filingStatus: v.filingStatus, projection: v.projection,
       stateRateOverride: v.stateRateOverride ?? '', localRate: v.localRate ?? '',
       priorYearTax: v.priorYearTax ?? '', priorAgiHigh: form.priorAgiHigh.checked, year: Number(v.year),
     });
