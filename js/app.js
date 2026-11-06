@@ -109,7 +109,7 @@ async function mergeDuplicates() {
   for (const [col, [field, users]] of Object.entries(refs)) {
     const keep = new Map();
     for (const a of data[col] ?? []) {
-      const key = (a.name ?? '').trim().toLowerCase();
+      const key = nameKey(a.name);
       const first = keep.get(key);
       if (!first) { keep.set(key, a); continue; }
       for (const u of users) {
@@ -291,6 +291,8 @@ const accName = (id) => {
   const a = (data?.accounts ?? []).find((x) => x.id === id);
   return a ? `${a.name}${a.last4 ? ` ••${a.last4}` : ''}` : '';
 };
+// Same name regardless of case, spaces or invisible characters ("PayPal" = "pay pal\u200b").
+const nameKey = (n) => String(n ?? '').normalize('NFKC').toLowerCase().replace(/[\s\u200b-\u200d\ufeff]+/g, '');
 const clientName = (x) => (data?.clients ?? []).find((c) => c.id === x.clientId)?.name || x.source || '';
 
 // ───────────── sheets ─────────────
@@ -335,7 +337,7 @@ async function resolvePick(col, value, newName, extra = {}) {
   if (value !== '__new') return value || '';
   const name = (newName || '').trim();
   if (!name) return '';
-  const same = (data[col] ?? []).find((a) => a.name.trim().toLowerCase() === name.toLowerCase());
+  const same = (data[col] ?? []).find((a) => nameKey(a.name) === nameKey(name));
   if (same) return same.id;
   const id = crypto.randomUUID();
   await store.put(col, id, { name, ...extra });

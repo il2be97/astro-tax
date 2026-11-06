@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "serve": "python3 -m http.server 5173"
+    "serve": "python3 -m http.server 5173",
+    "stamp": "node scripts/stamp.mjs"
   }
 }
