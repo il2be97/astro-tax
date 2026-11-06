@@ -286,3 +286,6 @@ main#root { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 }
 
 .home-left { display: flex; flex-direction: column; gap: 18px; }
+
+.rec-line { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); padding: 2px 2px; }
+.btn.link.danger-text { color: var(--bad); padding: 6px 0; }

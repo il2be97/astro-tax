@@ -467,7 +467,7 @@ function expenseView(p, plan) {
   const byCat = new Map();
   for (const x of exps) { const k = catOf(x)?.label ?? 'Другое'; byCat.set(k, (byCat.get(k) ?? 0) + (Number(x.amount) || 0)); }
   const cats = [...byCat].map(([label, v]) => ({ label, v })).sort((a, b) => b.v - a.v);
-  const recRows = (data.recurring ?? []).map((r) => ({ label: r.note || catOf(r)?.label || 'Трата', v: Number(r.amount) || 0, note: accName(r.accountId) })).sort((a, b) => b.v - a.v);
+  const recRows = (data.recurring ?? []).map((r) => ({ key: r.id, label: r.note || catOf(r)?.label || 'Трата', v: Number(r.amount) || 0, note: [accName(r.accountId), 'нажми, чтобы остановить'].filter(Boolean).join(' · ') })).sort((a, b) => b.v - a.v);
   const recTotal = recRows.reduce((t, r) => t + r.v, 0);
   const vRows = vendors.map((g) => ({ label: g.label, v: g.v, key: g.key, note: `${nWord(g.n)} · экономия ≈ ${money(savedOf(g.ded))}` }));
   const effRate = dedTotal ? saved / dedTotal : 0;
@@ -480,7 +480,7 @@ function expenseView(p, plan) {
     </div>
     ${exps.length ? `<div class="fine" style="text-align:left;margin:-2px 2px 4px">Каждый $100 расходов в вычет сейчас экономит ≈ ${money(effRate * 100)} налога (федеральный + самозанятость + штат).${p.workMode === 'w2' ? ' При работе только по W-2 расходы не вычитаются.' : ''}</div>` : ''}
     ${vRows.length ? `<div class="chart"><div class="chart-title">По получателям<span>${money(total)}</span></div>${bars(vRows, undefined, 'vendor')}<div class="fine" style="text-align:left;margin-top:10px">Нажми — все платежи этому получателю</div></div>` : ''}
-    ${recRows.length ? `<div class="chart"><div class="chart-title">Постоянные траты<span>${money(recTotal)}/мес</span></div>${bars(recRows)}<div class="fine" style="text-align:left;margin-top:10px">≈ ${money(recTotal * 12)} в год · остановить — в настройках</div></div>` : ''}
+    ${recRows.length ? `<div class="chart"><div class="chart-title">Постоянные траты<span>${money(recTotal)}/мес</span></div>${bars(recRows, undefined, 'stop-rec')}<div class="fine" style="text-align:left;margin-top:10px">≈ ${money(recTotal * 12)} в год</div></div>` : ''}
     ${cats.length ? `<div class="chart"><div class="chart-title">По категориям<span>${money(total)}</span></div>${bars(cats)}</div>` : ''}
     ${feed(p, { cols: ['expenses'], title: `Расходы ${p.year}`, totals: false, limit: 10 })}
     <div class="actions" style="grid-template-columns:1fr"><button class="btn" data-act="expense">＋ Расход</button></div>`;
@@ -657,7 +657,9 @@ function expenseSheet(x) {
       <label class="field">Заметка<input name="note" placeholder="необязательно" value="${esc(x?.note ?? '')}"></label>
     </div>
     ${accountSelect(x ? x.accountId : undefined)}
-    ${x ? (x.recurringId ? '<div class="fine" style="text-align:left">↻ Постоянная трата — остановить можно в настройках.</div>' : '') : '<label class="check"><input type="checkbox" name="monthly"> Каждый месяц (подписка, аренда…)</label>'}
+    ${x ? (x.recurringId && (data.recurring ?? []).some((r) => r.id === x.recurringId)
+      ? `<div class="rec-line"><span>↻ Списывается каждый месяц</span><button type="button" class="btn link danger-text" data-act="stop-rec" data-key="${esc(x.recurringId)}">Остановить подписку</button></div>`
+      : x.recurringId ? '<div class="fine" style="text-align:left">↻ Подписка остановлена</div>' : '') :'<label class="check"><input type="checkbox" name="monthly"> Каждый месяц (подписка, аренда…)</label>'}
     <div class="field">Чек
       <div class="receipt" id="receipt">
         ${x?.hasReceipt ? '<span class="dim">Загрузка…</span>' : ''}
@@ -869,6 +871,12 @@ document.addEventListener('click', async (ev) => {
     const x = (data[b.dataset.col] ?? []).find((i) => i.id === b.dataset.id);
     if (x?.hasReceipt) await store.deleteReceipt(x.id).catch(() => {});
     await store.remove(b.dataset.col, b.dataset.id);
+  } else if (act === 'stop-rec') {
+    // Stop future months; months already recorded stay as they are.
+    const r = (data.recurring ?? []).find((i) => i.id === b.dataset.key);
+    if (!r || !confirm(`Остановить «${r.note || catOf(r)?.label || 'подписку'}» (${cash(r.amount)}/мес)? Новые списания не будут добавляться, прошлые останутся.`)) return;
+    sheet.close();
+    await store.remove('recurring', r.id);
   } else if (act === 'del-named') { await store.remove(b.dataset.col, b.dataset.id); b.closest('.acc').remove(); }
   else if (act === 'add-named') {
     const col = b.dataset.col;
