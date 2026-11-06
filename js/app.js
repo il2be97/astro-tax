@@ -183,7 +183,7 @@ function render() {
     expense: () => expenseView(p),
     tax: () => taxView(p, plan),
   };
-  root.innerHTML = (views[tab] ?? views.home)() + tabbar();
+  root.innerHTML = tabbar() + (views[tab] ?? views.home)();
   root.querySelector('details.more.open-default')?.setAttribute('open', '');
 }
 
