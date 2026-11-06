@@ -236,8 +236,17 @@ function feed(p) {
     ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: money(x.amount), cls: 'dim' })),
   ].sort((a, b) => (b.x.date ?? '').localeCompare(a.x.date ?? ''));
   const list = showAll ? items : items.slice(0, 6);
+  const sum = (col) => (data[col] ?? []).filter((x) => x.date?.startsWith(y)).reduce((t, x) => t + (Number(x.amount) || 0), 0);
+  const inc = sum('incomes');
+  const exp = sum('expenses');
+  const totals = inc || exp ? `<div class="split totals">
+      <span>Доход<b class="ok">${money(inc)}</b></span>
+      <span>Расход<b>${money(exp)}</b></span>
+      <span>Прибыль<b>${money(inc - exp)}</b></span>
+    </div>` : '';
   return `<section>
     <div class="section-title"><span>Записи ${p.year}</span>${items.length > 6 ? `<button class="btn link" style="padding:0;font-size:11px" data-act="toggle-all">${showAll ? 'Свернуть' : `Все ${items.length}`}</button>` : ''}</div>
+    ${totals}
     <div class="feed">${list.length ? list.map((i) => `
       <button class="item" data-act="open-item" data-col="${i.col}" data-id="${esc(i.x.id)}">
         <span class="glyph ${i.g}">${i.icon}</span>

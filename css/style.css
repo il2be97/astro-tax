@@ -200,3 +200,6 @@ details.more[open] summary::after { transform: rotate(-90deg); }
 .add-row input { flex: 1; min-width: 0; }
 .add-row .btn { flex: none; padding-inline: 16px; }
 .acc-list:empty { display: none; }
+.totals { margin: 0 0 10px; }
+.totals span { background: var(--card); border-radius: 12px; }
+.totals b.ok { color: var(--ok); }
