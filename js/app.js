@@ -2,7 +2,10 @@ import { LocalStore, CloudStore, cloudConfigured, initCloud, watchAuth, signIn, 
 import { plan as buildPlan, todayIso, parseIso } from './tax/schedule.js';
 import { desiredEvents, eventOps } from './tax/sync.js';
 import { FILING_STATUSES, WORK_MODES, EXPENSE_CATEGORIES } from './tax/rules.js';
-import { STATES, stateByCode, stateRate } from './tax/states.js';
+import { STATES, stateByCode, stateRate, stateDeduction } from './tax/states.js';
+import { FEDERAL } from './tax/rules.js';
+
+const FEDERAL_STD = FEDERAL[2026].stdDeduction;
 
 // ───────────── helpers ─────────────
 const $ = (s, el = document) => el.querySelector(s);
@@ -519,6 +522,7 @@ function more(plan) {
       <div class="qn">Q${q.q}</div>
       <div class="qd">${shortDate(q.due)}</div>
       <div class="qa">${q.toPay.total >= 1 ? money(q.toPay.total) : '✓'}</div>
+      ${q.toPay.total >= 1 && plan.hasState ? `<div class="qsplit">IRS ${q.toPay.fed >= 1 ? money(q.toPay.fed) : '✓'}<br>${esc(plan.state?.code ?? '')} ${q.toPay.state >= 1 ? money(q.toPay.state) : '✓'}</div>` : ''}
       <div class="qd">${STATUS_TEXT[q.status]}</div>
     </div>`).join('');
   const line = (label, v, cls = '') => `<div class="line ${cls}"><span>${label}</span><b>${v}</b></div>`;
@@ -537,7 +541,7 @@ function more(plan) {
         ${line('Федеральный подоходный', money(a.incomeTax))}
         ${a.seTax ? line('Self-employment (соцстрах + Medicare)', money(a.seTax)) : ''}
         ${a.addlMedicare ? line('Доп. Medicare', money(a.addlMedicare)) : ''}
-        ${plan.hasState ? line(`Штат ${esc(plan.state?.code ?? '')}`, money(a.stateTotal)) : ''}
+        ${plan.hasState ? line(`Штат ${esc(plan.state?.code ?? '')} · ${stateRate(profile()).rate}% от (AGI ${money(a.agi)} − вычет ${money(stateDeduction(profile(), FEDERAL_STD))})`, money(a.stateTotal)) : ''}
         ${line('Всего за год', money(a.total), 'total')}
         ${line('Эффективная ставка', `${(a.effective * 100).toFixed(1)}%`)}
       </div>
@@ -810,6 +814,7 @@ ${(data.recurring ?? []).length ? `<div class="sub">Постоянные тра�
       <summary style="padding:10px 0">Точнее расчёт</summary>
       <div class="more-body" style="padding:0 0 4px;gap:12px">
         <div class="row2">
+          <label class="field">Вычет штата, $<input name="stateDeduction" type="number" step="1" min="0" value="${esc(p.stateDeduction ?? '')}" placeholder="${Math.round(stateDeduction({ ...p, stateDeduction: '' }, FEDERAL_STD))}"></label>
           <label class="field">Своя ставка штата, %<input name="stateRateOverride" type="number" step="0.01" min="0" max="20" value="${esc(p.stateRateOverride ?? '')}" placeholder="${st?.rate ?? ''}"></label>
           <label class="field">Город, %<input name="localRate" type="number" step="0.001" min="0" max="10" value="${esc(p.localRate ?? '')}" placeholder="0"></label>
         </div>
@@ -823,7 +828,7 @@ ${(data.recurring ?? []).length ? `<div class="sub">Постоянные тра�
     ${store.mode === 'cloud' ? `<button class="btn link" type="button" data-act="signout">Выйти${user?.email ? ` · ${esc(user.email)}` : ''}</button>` : ''}`, async (v, form) => {
     await store.setProfile({
       state: v.state, workMode: v.workMode, filingStatus: v.filingStatus, projection: v.projection,
-      stateRateOverride: v.stateRateOverride ?? '', localRate: v.localRate ?? '',
+      stateRateOverride: v.stateRateOverride ?? '', stateDeduction: v.stateDeduction ?? '', localRate: v.localRate ?? '',
       priorYearTax: v.priorYearTax ?? '', priorAgiHigh: form.priorAgiHigh.checked, year: Number(v.year),
     });
   });

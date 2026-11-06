@@ -25,6 +25,28 @@ export const STATES = [
 
 export const stateByCode = (code) => STATES.find((s) => s.code === code) ?? null;
 
+// Approximate standard deduction / personal exemption, [single, married jointly].
+// 'fed' = the state starts from the federal standard deduction. States not listed
+// count from 0 (errs on paying a bit more). The user can set their own amount.
+const STATE_STD = {
+  GA: [12000, 24000], NC: [12750, 25500], CA: [5540, 11080], NY: [8000, 16050], VA: [8500, 17000],
+  MN: [14950, 29900], LA: [12500, 25000], MI: [5600, 11200], MA: [4400, 8800], IL: [2850, 5700],
+  OR: [2835, 5670], KY: [3270, 3270], MS: [8300, 16600], OK: [7350, 14700], VT: [7400, 14850],
+  RI: [10900, 21800], WI: [13230, 24490], IN: [1000, 2000], NJ: [1000, 2000], MD: [2700, 5450],
+  AZ: 'fed', CO: 'fed', ID: 'fed', MO: 'fed', ND: 'fed', NM: 'fed', SC: 'fed', MT: 'fed', DC: 'fed', ME: 'fed',
+};
+
+/** State deduction in dollars: the user's own amount wins over the guide. */
+export function stateDeduction(profile, fedStd = {}) {
+  const own = Number(profile?.stateDeduction);
+  if (profile?.stateDeduction !== '' && profile?.stateDeduction != null && Number.isFinite(own)) return own;
+  const v = STATE_STD[profile?.state];
+  const status = profile?.filingStatus ?? 'single';
+  if (v === 'fed') return fedStd[status] ?? 0;
+  if (!v) return 0;
+  return status === 'mfj' ? v[1] : v[0];
+}
+
 /** Effective state rate in percent: the user's override wins over the guide. */
 export function stateRate(profile) {
   const override = Number(profile?.stateRateOverride);

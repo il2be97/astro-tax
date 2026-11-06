@@ -122,3 +122,13 @@ test('plan: a late payment closes an overdue quarter as late', () => {
   assert.equal(p.quarters[0].status, 'late');
   assert.notEqual(p.next.q, 1);
 });
+
+test('state tax is charged on AGI above the state deduction', async () => {
+  const { stateDeduction } = await import('../js/tax/states.js');
+  assert.equal(stateDeduction({ state: 'GA', filingStatus: 'single' }, R.stdDeduction), 12000);
+  assert.equal(stateDeduction({ state: 'CO', filingStatus: 'mfj' }, R.stdDeduction), R.stdDeduction.mfj);
+  assert.equal(stateDeduction({ state: 'GA', stateDeduction: '5000' }, R.stdDeduction), 5000);
+  const t = annualTax({ seNet: 20000, stateRatePct: 5, stateDeduction: 12000, rules: R });
+  assert.ok(Math.abs(t.state - Math.max(0, t.agi - 12000) * 0.05) < 0.01);
+  assert.equal(annualTax({ seNet: 5000, stateRatePct: 5, stateDeduction: 12000, rules: R }).state, 0);
+});

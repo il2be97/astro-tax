@@ -3,7 +3,7 @@
 
 import { annualTax } from './engine.js';
 import { federalRules, EXPENSE_CATEGORIES } from './rules.js';
-import { stateRate, stateByCode } from './states.js';
+import { stateRate, stateByCode, stateDeduction } from './states.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 export const iso = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
@@ -83,6 +83,7 @@ function taxFor(t, profile, rules) {
     wages: t.wages,
     adjustments: t.adjustments,
     stateRatePct: stateRate(profile).rate,
+    stateDeduction: stateDeduction(profile, rules.stdDeduction),
     localRatePct: num(profile.localRate),
     rules,
   });

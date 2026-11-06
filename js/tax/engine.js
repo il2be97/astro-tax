@@ -40,7 +40,7 @@ export function selfEmploymentTax(seNet, wages, rules) {
  * @param {number} p.localRatePct
  * @param {object} p.rules      FEDERAL[year]
  */
-export function annualTax({ status = 'single', seNet = 0, wages = 0, adjustments = 0, stateRatePct = 0, localRatePct = 0, rules }) {
+export function annualTax({ status = 'single', seNet = 0, wages = 0, adjustments = 0, stateRatePct = 0, stateDeduction = 0, localRatePct = 0, rules }) {
   const se = selfEmploymentTax(seNet, wages, rules);
   const halfSE = se.total / 2;
 
@@ -63,7 +63,7 @@ export function annualTax({ status = 'single', seNet = 0, wages = 0, adjustments
   const federal = incomeTax + se.total + addlMedicare;
   // States mostly start from federal AGI; state deductions are ignored, which
   // errs on the side of paying slightly more.
-  const state = agi * (stateRatePct / 100);
+  const state = Math.max(0, agi - stateDeduction) * (stateRatePct / 100);
   const local = agi * (localRatePct / 100);
   const total = federal + state + local;
   const gross = Math.max(0, wages) + Math.max(0, seNet);
