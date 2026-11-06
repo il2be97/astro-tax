@@ -183,13 +183,14 @@ function render() {
   if (!p.state) { welcome(); return; }
   const plan = currentPlan();
   const views = {
-    home: () => hero(plan) + notes() + actions(p) + feed(p, { limit: 5, title: 'Последние записи' }),
+    home: () => `<div class="home-left">${hero(plan)}${notes()}${actions(p)}</div>${feed(p, { limit: 5, title: 'Последние записи' })}`,
     records: () => recordsView(p),
     income: () => incomeView(p, plan),
     expense: () => expenseView(p, plan),
     tax: () => taxView(p, plan),
   };
   const title = TABS.find(([id]) => id === tab)?.[1] ?? '';
+  root.dataset.view = views[tab] ? tab : 'home';
   root.innerHTML = `${tabbar()}<h1 class="page-title">${title}</h1>${(views[tab] ?? views.home)()}`;
   $('#drawer').innerHTML = `<div class="drawer-head">Astro · Tax</div>${TABS.map(([id, label, icon]) => `
     <button class="${id === tab ? 'on' : ''}" data-act="tab" data-tab="${id}"><i>${icon}</i>${label}</button>`).join('')}
@@ -349,7 +350,8 @@ function months(p, pred = () => true) {
 }
 
 // Who an income belongs to — a client, legacy free text, W-2 wages, or nobody.
-const clientKey = (x) => x.clientId || (x.type === 'w2' ? '__w2' : x.source ? `src:${x.source}` : '__none');
+// Grouped by the name shown, so a picked client and old free text "Magify" are one.
+const clientKey = (x) => (clientName(x) ? `n:${nameKey(clientName(x))}` : x.type === 'w2' ? '__w2' : '__none');
 const clientLabel = (x) => clientName(x) || (x.type === 'w2' ? 'Зарплата W-2' : 'Без заказчика');
 
 function incomeView(p, plan) {

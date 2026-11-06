@@ -268,3 +268,21 @@ main#root { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 .month-h { display: flex; justify-content: space-between; gap: 10px; padding: 10px 16px 6px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-3); background: var(--bg, transparent); border-top: 1px solid var(--line); font-family: inherit; }
 .month-h:first-child { border-top: 0; }
 .month-h span:last-child { font-family: var(--mono); letter-spacing: 0; text-transform: none; }
+
+/* Web layout (≥1024px): wide content, cards side by side instead of one long column. */
+@media (min-width: 1024px) {
+  .topbar, main { max-width: 1200px; padding-left: 32px; padding-right: 32px; }
+  main#root { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; align-items: start; }
+  main#root > * { grid-column: 1 / -1; min-width: 0; }
+  main#root > .chart { grid-column: auto; }
+  /* Home: what to pay on the left, the latest records on the right. */
+  main#root[data-view="home"] { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+  main#root[data-view="home"] > .home-left { grid-column: 1; }
+  main#root[data-view="home"] > section { grid-column: 2; }
+  /* Taxes: the breakdown next to quarters & calculation. */
+  main#root[data-view="tax"] > details.more { grid-column: 2; grid-row: 3 / span 2; }
+  main#root[data-view="tax"] > .chart { grid-column: 1; }
+  .actions { max-width: none; }
+}
+
+.home-left { display: flex; flex-direction: column; gap: 18px; }
