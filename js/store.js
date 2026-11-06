@@ -40,6 +40,10 @@ export class LocalStore {
   }
 
   async setProfile(patch) { this.#state.profile = { ...this.#state.profile, ...patch }; this.#emit(); }
+  // Receipts are big (image data URLs) — kept apart from the watched state.
+  async saveReceipt(id, r) { localStorage.setItem(`${LS_KEY}/receipt/${id}`, JSON.stringify(r)); }
+  async loadReceipt(id) { try { return JSON.parse(localStorage.getItem(`${LS_KEY}/receipt/${id}`)); } catch { return null; } }
+  async deleteReceipt(id) { localStorage.removeItem(`${LS_KEY}/receipt/${id}`); }
   async add(col, data) { this.#state[col].push({ id: crypto.randomUUID(), ...data }); this.#emit(); }
   async put(col, id, data) {
     const list = this.#state[col];
@@ -121,6 +125,10 @@ export class CloudStore {
   }
 
   setProfile(patch) { return fb.fs.setDoc(this.#ref(), patch, { merge: true }); }
+  // users/{uid}/receipts/{expenseId} — not watched; loaded on demand (≤1 MiB per doc).
+  saveReceipt(id, r) { return fb.fs.setDoc(this.#ref('receipts', id), r); }
+  async loadReceipt(id) { const s = await fb.fs.getDoc(this.#ref('receipts', id)); return s.exists() ? s.data() : null; }
+  deleteReceipt(id) { return fb.fs.deleteDoc(this.#ref('receipts', id)); }
   add(col, data) { return fb.fs.addDoc(this.#col(col), data); }
   put(col, id, data) { return fb.fs.setDoc(this.#ref(col, id), data); }
   update(col, id, patch) { return fb.fs.updateDoc(this.#ref(col, id), patch); }

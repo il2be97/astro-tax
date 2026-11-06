@@ -150,7 +150,7 @@ function render() {
   const p = profile();
   if (!p.state) { welcome(); return; }
   const plan = currentPlan();
-  root.innerHTML = hero(plan) + notes() + actions(p) + feed(p) + more(plan);
+  root.innerHTML = hero(plan) + notes() + actions(p) + feed(p) + charts(p, plan) + more(plan);
 }
 
 function welcome() {
@@ -232,7 +232,7 @@ function feed(p) {
   const y = String(p.year);
   const items = [
     ...(data.incomes ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'incomes', x, g: 'in', icon: '↓', title: clientName(x) || 'Доход', sub: accName(x.accountId), amount: `+${money(x.amount)}`, cls: 'ok' })),
-    ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход', sub: x.note || accName(x.accountId), amount: `−${money(x.amount)}`, cls: '' })),
+    ...(data.expenses ?? []).filter((x) => x.date?.startsWith(y)).map((x) => ({ col: 'expenses', x, g: 'out', icon: '↑', title: `${EXPENSE_CATEGORIES.find((c) => c.id === x.category)?.label ?? 'Расход'}${x.hasReceipt ? ' 📎' : ''}`, sub: x.note || accName(x.accountId), amount: `−${money(x.amount)}`, cls: '' })),
     ...(data.payments ?? []).filter((x) => Number(x.year ?? x.date?.slice(0, 4)) === p.year).map((x) => ({ col: 'payments', x, g: 'tax', icon: '✓', title: `Налог ${x.kind === 'state' ? 'штату' : 'IRS'}`, sub: Number(x.quarter) ? `Q${x.quarter}` : 'декларация', amount: money(x.amount), cls: 'dim' })),
   ].sort((a, b) => (b.x.date ?? '').localeCompare(a.x.date ?? ''));
   const list = showAll ? items : items.slice(0, 6);
@@ -253,6 +253,58 @@ function feed(p) {
         <span class="t"><div>${esc(i.title)}</div><small>${shortDate(i.x.date)}${i.sub ? ` · ${esc(i.sub)}` : ''}</small></span>
         <span class="a ${i.cls}">${i.amount}</span>
       </button>`).join('') : '<div class="empty">Пока пусто. Добавь первый доход.</div>'}</div>
+  </section>`;
+}
+
+// ───────────── charts ─────────────
+// Horizontal bars, one hue: magnitude only, so no legend; label + value are text.
+function bars(rows, max = Math.max(...rows.map((r) => r.v), 1)) {
+  return `<div class="bars">${rows.map((r) => `
+    <div class="bar-row" title="${esc(r.label)}: ${money(r.v)}${r.note ? ` · ${esc(r.note)}` : ''}">
+      <div class="bar-head"><span>${esc(r.label)}</span><b>${money(r.v)}</b></div>
+      <div class="bar-track"><i style="width:${Math.max(r.v > 0 ? 1.5 : 0, (r.v / max) * 100).toFixed(1)}%"></i></div>
+      ${r.note ? `<small>${esc(r.note)}</small>` : ''}
+    </div>`).join('')}</div>`;
+}
+
+// 12 monthly columns of income for the year.
+function months(p) {
+  const y = String(p.year);
+  const m = Array(12).fill(0);
+  for (const x of data.incomes ?? []) if (x.date?.startsWith(y)) m[Number(x.date.slice(5, 7)) - 1] += Number(x.amount) || 0;
+  const max = Math.max(...m, 1);
+  const names = ['Я', 'Ф', 'М', 'А', 'М', 'И', 'И', 'А', 'С', 'О', 'Н', 'Д'];
+  const full = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+  return `<div class="cols">${m.map((v, i) => `
+    <div class="col" title="${full[i]}: ${money(v)}" data-act="month" data-label="${full[i]} · ${money(v)}"><div class="col-track"><i style="height:${v > 0 ? Math.max(3, (v / max) * 100).toFixed(1) : 0}%"></i></div><span>${names[i]}</span></div>`).join('')}</div>`;
+}
+
+function charts(p, plan) {
+  const y = String(p.year);
+  const inc = (data.incomes ?? []).filter((x) => x.date?.startsWith(y));
+  if (!inc.length) return '';
+  const by = new Map();
+  for (const x of inc) { const k = clientName(x) || 'Без заказчика'; by.set(k, (by.get(k) ?? 0) + (Number(x.amount) || 0)); }
+  let clients = [...by].map(([label, v]) => ({ label, v })).sort((a, b) => b.v - a.v);
+  if (clients.length > 6) clients = [...clients.slice(0, 5), { label: 'Другие', v: clients.slice(5).reduce((t, r) => t + r.v, 0) }];
+  const total = clients.reduce((t, r) => t + r.v, 0);
+  clients.forEach((r) => { r.note = `${Math.round((r.v / total) * 100)}%`; });
+
+  const a = plan.annual;
+  const st = plan.state?.code ?? '';
+  const taxes = [
+    { label: 'Федеральный подоходный', v: a.incomeTax + a.addlMedicare },
+    { label: 'Самозанятость (соцстрах + Medicare)', v: a.seTax },
+    { label: plan.hasState ? `Штат ${st}` : `Штат ${st}`, v: a.state, note: plan.hasState ? '' : 'в этом штате нет подоходного налога' },
+    ...(a.local ? [{ label: 'Город', v: a.local }] : []),
+  ].filter((r) => r.v >= 1 || r.note);
+  const paid = `Оплачено: IRS ${money(plan.paid.fed + plan.withheld.fed)}${plan.hasState ? ` · штат ${money(plan.paid.state + plan.withheld.state)}` : ''}`;
+
+  return `<section class="charts">
+    <div class="section-title"><span>Графики ${p.year}</span></div>
+    <div class="chart"><div class="chart-title">Доход по заказчикам</div>${bars(clients)}</div>
+    <div class="chart"><div class="chart-title">Доход по месяцам<span></span></div>${months(p)}</div>
+    <div class="chart"><div class="chart-title">Налоги за год<span>${money(a.total)}</span></div>${bars(taxes)}<div class="fine" style="text-align:left;margin-top:10px">${paid}</div></div>
   </section>`;
 }
 
@@ -398,11 +450,68 @@ function expenseSheet(x) {
       <label class="field">Заметка<input name="note" placeholder="необязательно" value="${esc(x?.note ?? '')}"></label>
     </div>
     ${accountSelect(x ? x.accountId : undefined)}
-    ${sheetButtons('expenses', x)}`, async (r) => {
+    <div class="field">Чек
+      <div class="receipt" id="receipt">
+        ${x?.hasReceipt ? '<span class="dim">Загрузка…</span>' : ''}
+        <label class="btn receipt-add"${x?.hasReceipt ? ' hidden' : ''}>📎 Прикрепить фото или PDF<input type="file" name="receiptFile" accept="image/*,application/pdf" hidden></label>
+      </div>
+    </div>
+    ${sheetButtons('expenses', x)}`, async (r, form) => {
     const accountId = await resolveAccount(r);
     if (!x) remember('last-cat', r.category);
-    await save('expenses', x, { date: r.date, amount: amt(r.amount), category: r.category, accountId, note: (r.note || '').trim() });
+    const rec = { date: r.date, amount: amt(r.amount), category: r.category, accountId, note: (r.note || '').trim() };
+    const pending = form._receipt; // undefined = unchanged, null = removed, object = new
+    if (pending !== undefined) rec.hasReceipt = Boolean(pending);
+    const id = x?.id ?? crypto.randomUUID();
+    if (pending) await store.saveReceipt(id, pending);
+    else if (pending === null && x?.hasReceipt) await store.deleteReceipt(id);
+    if (x) await save('expenses', x, rec);
+    else await store.put('expenses', id, rec);
   });
+  const form = $('#sheet-form');
+  const box = $('#receipt');
+  const show = (rc) => {
+    box.querySelector('.receipt-view')?.remove();
+    box.querySelector('.dim')?.remove();
+    box.querySelector('.receipt-add').hidden = Boolean(rc);
+    if (!rc) return;
+    box.insertAdjacentHTML('afterbegin', `<div class="receipt-view">
+      ${rc.type === 'application/pdf' ? '<span class="pdf">PDF</span>' : `<img src="${rc.data}" alt="Чек">`}
+      <span class="t">${esc(rc.name || 'Чек')}</span>
+      <button type="button" class="btn link" data-act="receipt-open">Открыть</button>
+      <button type="button" class="icon-btn" data-act="receipt-del" aria-label="Убрать чек">✕</button></div>`);
+    form._shown = rc;
+  };
+  form._show = show;
+  if (x?.hasReceipt) store.loadReceipt(x.id).then((rc) => show(rc)).catch(() => show(null));
+  form.receiptFile.addEventListener('change', async () => {
+    const f = form.receiptFile.files[0];
+    if (!f) return;
+    try { const rc = await readReceipt(f); form._receipt = rc; show(rc); }
+    catch (e) { alert(String(e.message ?? e)); }
+    form.receiptFile.value = '';
+  });
+}
+
+// Photo → JPEG ≤1600px, shrunk until it fits a Firestore doc; small PDFs as is.
+const RECEIPT_MAX = 900_000; // data-URL chars (Firestore doc limit is 1 MiB)
+async function readReceipt(file) {
+  const asUrl = (b) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(b); });
+  const meta = { name: file.name, createdAt: new Date().toISOString() };
+  if (file.type === 'application/pdf') {
+    const data = await asUrl(file);
+    if (data.length > RECEIPT_MAX) throw new Error('PDF больше ~650 КБ — сфотографируй чек или сожми PDF.');
+    return { ...meta, type: file.type, data };
+  }
+  const img = await createImageBitmap(file);
+  for (const [side, q] of [[1600, 0.75], [1280, 0.7], [1024, 0.6], [800, 0.55]]) {
+    const k = Math.min(1, side / Math.max(img.width, img.height));
+    const c = Object.assign(document.createElement('canvas'), { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const data = c.toDataURL('image/jpeg', q);
+    if (data.length <= RECEIPT_MAX) return { ...meta, type: 'image/jpeg', data };
+  }
+  throw new Error('Не удалось сжать фото.');
 }
 
 // Q4 and the return are paid in the next calendar year (Jan / Apr).
@@ -508,6 +617,18 @@ document.addEventListener('click', async (ev) => {
     try { await signIn(); } catch (e) { if (e?.code !== 'auth/popup-closed-by-user') gate(null, String(e?.message ?? e)); }
   } else if (act === 'signout') { sheet.close(); await signOut(); }
   else if (act === 'reload') location.reload();
+  else if (act === 'receipt-del') { const f = $('#sheet-form'); f._receipt = null; f._show(null); }
+  else if (act === 'receipt-open') {
+    // Synchronous, so the new tab still counts as a user gesture (Safari).
+    const rc = $('#sheet-form')._shown;
+    const [head, b64] = rc.data.split(',');
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+    window.open(URL.createObjectURL(new Blob([bytes], { type: head.slice(5).split(';')[0] })), '_blank');
+  } else if (act === 'month') {
+    const t = b.closest('.chart').querySelector('.chart-title span');
+    t.textContent = b.dataset.label;
+  }
   else if (act === 'close') sheet.close();
   else if (act === 'settings') settingsSheet();
   else if (act === 'income') incomeSheet();
@@ -519,6 +640,8 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'del-item') {
     if (!confirm('Удалить запись?')) return;
     sheet.close();
+    const x = (data[b.dataset.col] ?? []).find((i) => i.id === b.dataset.id);
+    if (x?.hasReceipt) await store.deleteReceipt(x.id).catch(() => {});
     await store.remove(b.dataset.col, b.dataset.id);
   } else if (act === 'del-named') { await store.remove(b.dataset.col, b.dataset.id); b.closest('.acc').remove(); }
   else if (act === 'add-named') {
